@@ -9,6 +9,14 @@ contextBridge.exposeInMainWorld('milim', {
   geminiStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiKey: (key) => ipcRenderer.invoke('gemini:save-key', key),
   checkGeminiAnswer: (payload) => ipcRenderer.invoke('gemini:check-answer', payload),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
+  },
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close')

@@ -1,5 +1,19 @@
 # milim
 
+## Phát hành bản cập nhật tự động
+
+Milim dùng GitHub Releases và `electron-updater`. Khi mã nguồn đã được đẩy lên
+`manhthang-svg/AI-vocab`, tạo một tag trùng với phiên bản trong `package.json`:
+
+```powershell
+git tag v1.4.0
+git push origin v1.4.0
+```
+
+GitHub Actions sẽ tự đóng gói Windows và đưa bộ cài, blockmap cùng `latest.yml`
+vào một Release công khai. Các bản milim đã cài sẽ kiểm tra cập nhật khi khởi
+động và mỗi 6 giờ. Mỗi phiên bản mới phải tăng trường `version` trước khi tạo tag.
+
 Ứng dụng desktop học từ vựng tiếng Anh với bộ từ theo ngày, spaced repetition và nhận xét bài làm bằng Gemini.
 
 ## Chạy ứng dụng

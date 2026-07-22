@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
@@ -6,6 +7,8 @@ app.setName('milim');
 
 let mainWindow;
 let writeQueue = Promise.resolve();
+let updateCheckRunning = false;
+let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: '', percent: 0, message: 'Sẵn sàng kiểm tra cập nhật.' };
 const smokeMode = process.env.MILIM_SMOKE_MODE === '1';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
@@ -27,6 +30,54 @@ function dataFile() {
 
 function secretsFile() {
   return path.join(app.getPath('userData'), 'milim-secrets.json');
+}
+
+function publishUpdateStatus(patch = {}) {
+  updateStatus = { ...updateStatus, ...patch, currentVersion: app.getVersion() };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', updateStatus);
+  return updateStatus;
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged || smokeMode) {
+    publishUpdateStatus({ state: 'unavailable', message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' });
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => publishUpdateStatus({ state: 'checking', percent: 0, message: 'Đang kiểm tra phiên bản mới...' }));
+  autoUpdater.on('update-available', (info) => publishUpdateStatus({ state: 'downloading', version: info.version, percent: 0, message: `Đang tải milim ${info.version}...` }));
+  autoUpdater.on('update-not-available', () => {
+    updateCheckRunning = false;
+    publishUpdateStatus({ state: 'current', version: app.getVersion(), percent: 100, message: 'Bạn đang dùng phiên bản mới nhất.' });
+  });
+  autoUpdater.on('download-progress', (progress) => publishUpdateStatus({ state: 'downloading', percent: Math.max(0, Math.min(100, Math.round(progress.percent || 0))), message: `Đang tải bản cập nhật · ${Math.round(progress.percent || 0)}%` }));
+  autoUpdater.on('update-downloaded', (info) => {
+    updateCheckRunning = false;
+    publishUpdateStatus({ state: 'downloaded', version: info.version, percent: 100, message: `Milim ${info.version} đã sẵn sàng cài đặt.` });
+  });
+  autoUpdater.on('error', (error) => {
+    updateCheckRunning = false;
+    console.error('Auto update error:', error.message);
+    publishUpdateStatus({ state: 'error', percent: 0, message: 'Chưa thể kiểm tra cập nhật. Hãy thử lại sau.' });
+  });
+  setTimeout(() => checkForAppUpdate(false), 8000);
+  setInterval(() => checkForAppUpdate(false), 6 * 60 * 60 * 1000);
+}
+
+async function checkForAppUpdate(manual = true) {
+  if (!app.isPackaged || smokeMode) return publishUpdateStatus({ state: 'unavailable', message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' });
+  if (updateCheckRunning || updateStatus.state === 'downloading' || updateStatus.state === 'downloaded') return updateStatus;
+  updateCheckRunning = true;
+  publishUpdateStatus({ state: 'checking', percent: 0, message: manual ? 'Đang kiểm tra phiên bản mới...' : 'Đang kiểm tra cập nhật trong nền...' });
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    updateCheckRunning = false;
+    console.error('Could not check for updates:', error.message);
+    publishUpdateStatus({ state: 'error', message: 'Chưa thể kết nối máy chủ cập nhật. Hãy thử lại sau.' });
+  }
+  return updateStatus;
 }
 
 async function readGeminiCredentials() {
@@ -208,12 +259,14 @@ function createWindow() {
         const keepReviewFeedback = process.env.MILIM_SMOKE_REVIEW_CAPTURE === '1';
         const result = await mainWindow.webContents.executeJavaScript(`(async () => {
           document.querySelector('[data-view="add"]').click();
-          document.querySelector('#term-input').value = 'serendipity';
-          document.querySelector('#definition-input').value = 'một điều tốt đẹp tình cờ xảy đến';
+          document.querySelector('#term-input').value = 'thrill';
           document.querySelector('[data-pos="noun"]').click();
+          document.querySelector('[data-pos="verb"]').click();
+          document.querySelector('[data-definition-pos="noun"]').value = 'cảm giác phấn khích';
+          document.querySelector('[data-definition-pos="verb"]').value = 'làm ai đó phấn khích';
           document.querySelector('#word-form').requestSubmit();
           await new Promise(resolve => setTimeout(resolve, 250));
-          document.querySelector('#term-input').value = '  SERENDIPITY  ';
+          document.querySelector('#term-input').value = '  THRILL  ';
           document.querySelector('#definition-input').value = 'bản trùng';
           document.querySelector('#word-form').requestSubmit();
           await new Promise(resolve => setTimeout(resolve, 80));
@@ -222,8 +275,9 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 100));
           const result = {
             words: document.querySelectorAll('#deck-detail .word-row').length,
-            termVisible: document.body.innerText.includes('serendipity'),
-            definitionVisible: document.body.innerText.includes('một điều tốt đẹp tình cờ xảy đến'),
+            termVisible: document.body.innerText.includes('thrill'),
+            definitionVisible: document.body.innerText.includes('cảm giác phấn khích') && document.body.innerText.includes('làm ai đó phấn khích'),
+            multiplePartsVisible: document.querySelectorAll('#deck-detail .word-row .pos-label').length === 2,
             duplicateBlocked,
             historyVisible: false,
             heatmapCells: 0,
@@ -241,8 +295,8 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 50));
           document.querySelector('[data-review-date]')?.click();
           await new Promise(resolve => setTimeout(resolve, 100));
-          document.querySelector('#review-meaning').value = 'một điều tốt đẹp tình cờ xảy đến';
-          document.querySelector('#review-sentence').value = 'Finding this book was pure serendipity.';
+          document.querySelector('#review-meaning').value = 'cảm giác phấn khích hoặc làm ai đó phấn khích';
+          document.querySelector('#review-sentence').value = 'The surprise thrilled everyone.';
           document.querySelector('#gemini-answer-form').requestSubmit();
           await new Promise(resolve => setTimeout(resolve, 250));
           result.reviewFeedback = document.body.innerText.includes('GEMINI NHẬN XÉT');
@@ -255,7 +309,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.duplicateBlocked || !result.historyVisible || result.heatmapCells !== 112 || !result.reviewFeedback || !result.reviewComplete) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.historyVisible || result.heatmapCells !== 112 || !result.reviewFeedback || !result.reviewComplete) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -336,6 +390,13 @@ ipcMain.handle('gemini:check-answer', async (_event, payload) => {
     return callGemini(credentials.key, replacementModel, payload || {});
   }
 });
+ipcMain.handle('update:status', () => updateStatus);
+ipcMain.handle('update:check', () => checkForAppUpdate(true));
+ipcMain.handle('update:install', () => {
+  if (updateStatus.state !== 'downloaded') return false;
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return true;
+});
 
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
 ipcMain.on('window:maximize', () => {
@@ -359,6 +420,7 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
+  setupAutoUpdater();
 });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

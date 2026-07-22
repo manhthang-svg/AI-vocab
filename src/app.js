@@ -23,6 +23,10 @@ const api = window.milim || {
   async checkGeminiAnswer(payload) {
     return { meaning_score: 8, sentence_score: 8, meaning_feedback: 'Đúng nghĩa chính.', sentence_feedback: 'Câu dùng từ phù hợp.', corrected_sentence: payload.sentence, overall_feedback: 'Làm tốt.', recommended_grade: 'good' };
   },
+  async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
+  async checkForUpdates() { return this.updateStatus(); },
+  async installUpdate() { return false; },
+  onUpdateStatus() { return () => {}; },
   minimize() {}, maximize() {}, close() {}
 };
 
@@ -30,11 +34,12 @@ const state = {
   data: null,
   view: 'home',
   selectedDate: null,
-  selectedPos: '',
+  selectedPos: [],
   editingId: null,
   review: null,
   geminiConfigured: false,
   geminiModel: 'gemini-2.5-flash',
+  updateStatus: null,
   confirmAction: null,
   toastTimer: null
 };
@@ -83,12 +88,19 @@ function freshSrs() {
 }
 
 function normalizeWord(word) {
+  const legacyPos = Array.isArray(word.partsOfSpeech) ? word.partsOfSpeech : (word.partOfSpeech ? [word.partOfSpeech] : []);
+  const definitions = Array.isArray(word.definitions) && word.definitions.length
+    ? word.definitions.map((item) => ({ partOfSpeech: String(item.partOfSpeech || ''), definition: String(item.definition || '') }))
+    : [{ partOfSpeech: legacyPos[0] || '', definition: String(word.definition || '') }];
+  const partsOfSpeech = [...new Set([...legacyPos, ...definitions.map((item) => item.partOfSpeech)].filter(Boolean))];
   return {
     ...word,
     id: word.id || uid(),
     term: String(word.term || ''),
-    definition: String(word.definition || ''),
-    partOfSpeech: word.partOfSpeech || '',
+    definition: definitions.map((item) => item.definition).filter(Boolean).join('\n'),
+    definitions,
+    partsOfSpeech,
+    partOfSpeech: partsOfSpeech[0] || '',
     createdAt: word.createdAt || new Date().toISOString(),
     createdDate: word.createdDate || localDate(word.createdAt || new Date()),
     srs: { ...freshSrs(), ...(word.srs || {}), history: Array.isArray(word.srs?.history) ? word.srs.history : [] }
@@ -111,6 +123,25 @@ function normalizeData(data) {
 
 function posName(value) {
   return POS_OPTIONS.find(([key]) => key === value)?.[1] || '';
+}
+
+function wordParts(word) {
+  return Array.isArray(word.partsOfSpeech) && word.partsOfSpeech.length
+    ? word.partsOfSpeech
+    : (word.partOfSpeech ? [word.partOfSpeech] : []);
+}
+
+function wordDefinitions(word) {
+  return Array.isArray(word.definitions) && word.definitions.length
+    ? word.definitions
+    : [{ partOfSpeech: word.partOfSpeech || '', definition: word.definition || '' }];
+}
+
+function definitionText(word, withLabels = false) {
+  return wordDefinitions(word).map((item) => {
+    const label = posName(item.partOfSpeech);
+    return withLabels && label ? `${label}: ${item.definition}` : item.definition;
+  }).filter(Boolean).join('\n');
 }
 
 function mastery(word) {
@@ -263,13 +294,26 @@ function renderHome() {
 }
 
 function renderPosOptions() {
-  $('#pos-options').innerHTML = POS_OPTIONS.map(([value, label]) => `<button type="button" class="pos-chip pos-${value} ${state.selectedPos === value ? 'selected' : ''}" data-pos="${value}">${label}</button>`).join('');
+  $('#pos-options').innerHTML = POS_OPTIONS.map(([value, label]) => `<button type="button" class="pos-chip pos-${value} ${state.selectedPos.includes(value) ? 'selected' : ''}" data-pos="${value}" aria-pressed="${state.selectedPos.includes(value)}">${label}</button>`).join('');
+}
+
+function renderDefinitionFields(initialValues = null) {
+  const existing = new Map($$('.definition-input').map((input) => [input.dataset.definitionPos || '', input.value]));
+  if (initialValues) initialValues.forEach((item) => existing.set(item.partOfSpeech || '', item.definition || ''));
+  const targets = state.selectedPos.length ? state.selectedPos : [''];
+  const fallback = existing.get('') || (existing.size === 1 ? [...existing.values()][0] : '');
+  $('#definition-fields').innerHTML = targets.map((part, index) => {
+    const label = part ? `ĐỊNH NGHĨA · ${posName(part).toUpperCase()}` : 'ĐỊNH NGHĨA';
+    const value = existing.get(part) || (targets.length === 1 ? fallback : '');
+    return `<label class="field definition-field"><span>${escapeHtml(label)} <em>TÙY Ý</em></span><textarea class="definition-input" id="${index === 0 ? 'definition-input' : `definition-input-${index}`}" data-definition-pos="${escapeHtml(part)}" rows="3" maxlength="1000" placeholder="Nhập nghĩa riêng cho ${part ? posName(part).toLowerCase() : 'từ này'}...">${escapeHtml(value)}</textarea></label>`;
+  }).join('');
 }
 
 function wordRow(word, options = {}) {
   const status = mastery(word);
-  const pos = posName(word.partOfSpeech);
-  return `<article class="word-row" data-word-id="${escapeHtml(word.id)}"><div class="word-term"><span class="status-dot ${status}" title="${status}"></span><strong>${escapeHtml(word.term)}</strong>${pos ? `<span class="pos-label pos-${escapeHtml(word.partOfSpeech)}">${escapeHtml(pos)}</span>` : ''}</div><div class="word-definition">${escapeHtml(word.definition).replace(/\n/g, '<br>')}</div><div class="word-actions"><button data-action="history" title="Lịch sử ôn">◷</button>${options.review ? `<button data-action="review-one" title="Ôn từ này">↻</button>` : ''}<button data-action="edit" title="Chỉnh sửa">✎</button><button data-action="delete" title="Xóa">×</button></div></article>`;
+  const labels = wordParts(word).map((part) => `<span class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</span>`).join('');
+  const definitions = wordDefinitions(word).map((item) => `<div>${item.partOfSpeech ? `<b class="definition-pos pos-text-${escapeHtml(item.partOfSpeech)}">${escapeHtml(posName(item.partOfSpeech))}</b>` : ''}<span>${escapeHtml(item.definition)}</span></div>`).join('');
+  return `<article class="word-row" data-word-id="${escapeHtml(word.id)}"><div class="word-term"><span class="status-dot ${status}" title="${status}"></span><strong>${escapeHtml(word.term)}</strong>${labels}</div><div class="word-definition">${definitions}</div><div class="word-actions"><button data-action="history" title="Lịch sử ôn">◷</button>${options.review ? `<button data-action="review-one" title="Ôn từ này">↻</button>` : ''}<button data-action="edit" title="Chỉnh sửa">✎</button><button data-action="delete" title="Xóa">×</button></div></article>`;
 }
 
 function renderRecentAdded() {
@@ -281,23 +325,26 @@ function renderRecentAdded() {
 
 function resetForm() {
   state.editingId = null;
-  state.selectedPos = '';
+  state.selectedPos = [];
   $('#term-input').value = '';
-  $('#definition-input').value = '';
   $('#duplicate-hint').textContent = '';
   $('.add-submit').innerHTML = 'Thêm vào hôm nay <span>→</span>';
   renderPosOptions();
+  renderDefinitionFields();
 }
 
 async function submitWord(event) {
   event.preventDefault();
   const term = $('#term-input').value.trim();
-  const definition = $('#definition-input').value.trim();
-  if (!term || !definition) {
-    showToast('Hãy nhập cả thuật ngữ và định nghĩa nhé.', '!', true);
-    (!term ? $('#term-input') : $('#definition-input')).focus();
+  const definitions = $$('.definition-input').map((input) => ({ partOfSpeech: input.dataset.definitionPos || '', definition: input.value.trim() }));
+  const emptyDefinition = definitions.findIndex((item) => !item.definition);
+  if (!term || emptyDefinition >= 0) {
+    showToast(state.selectedPos.length > 1 ? 'Hãy nhập định nghĩa riêng cho từng từ loại nhé.' : 'Hãy nhập cả thuật ngữ và định nghĩa nhé.', '!', true);
+    (!term ? $('#term-input') : $$('.definition-input')[emptyDefinition]).focus();
     return;
   }
+  const definition = definitions.map((item) => item.definition).join('\n');
+  const partsOfSpeech = [...state.selectedPos];
 
   const duplicate = state.data.words.find((word) => normalizedTerm(word.term) === normalizedTerm(term) && word.id !== state.editingId);
   if (duplicate) {
@@ -310,11 +357,11 @@ async function submitWord(event) {
 
   if (state.editingId) {
     const word = state.data.words.find((item) => item.id === state.editingId);
-    if (word) Object.assign(word, { term, definition, partOfSpeech: state.selectedPos, updatedAt: new Date().toISOString() });
+    if (word) Object.assign(word, { term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', updatedAt: new Date().toISOString() });
     await persist(false);
     showToast('Đã lưu thay đổi cho từ này.');
   } else {
-    state.data.words.push(normalizeWord({ id: uid(), term, definition, partOfSpeech: state.selectedPos, createdAt: new Date().toISOString(), createdDate: localDate(), srs: freshSrs() }));
+    state.data.words.push(normalizeWord({ id: uid(), term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt: new Date().toISOString(), createdDate: localDate(), srs: freshSrs() }));
     await persist(false);
     showToast(`Đã thêm “${term}” vào bộ hôm nay.`);
   }
@@ -328,11 +375,11 @@ function editWord(id) {
   const word = state.data.words.find((item) => item.id === id);
   if (!word) return;
   state.editingId = id;
-  state.selectedPos = word.partOfSpeech || '';
+  state.selectedPos = [...wordParts(word)];
   $('#term-input').value = word.term;
-  $('#definition-input').value = word.definition;
   $('.add-submit').innerHTML = 'Lưu thay đổi <span>→</span>';
   renderPosOptions();
+  renderDefinitionFields(wordDefinitions(word));
   navigate('add');
 }
 
@@ -363,7 +410,7 @@ function showWordHistory(id) {
   }, {});
   const common = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
   $('#history-word').textContent = word.term;
-  $('#history-definition').textContent = word.definition;
+  $('#history-definition').textContent = definitionText(word, true);
   $('#history-summary').innerHTML = `<div><strong>${history.length}</strong><span>Lượt đã ôn</span></div><div><strong>${word.srs.lapses || 0}</strong><span>Lần quên</span></div><div><strong>${word.srs.interval || 0}</strong><span>Khoảng cách ngày</span></div>`;
   $('#history-pattern').innerHTML = history.length
     ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần).</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
@@ -447,8 +494,10 @@ function renderReviewCard() {
   if (!word) { review.queue.shift(); renderReviewCard(); return; }
   const progress = Math.min(100, (review.answered / Math.max(1, review.total)) * 100);
   const result = review.result;
-  const feedback = result ? `<section class="gemini-feedback"><div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Nghĩa</em></b><b>${result.sentence_score}<small>/10</small><em>Đặt câu</em></b></div></div><div class="feedback-grid"><article><strong>Phần nghĩa</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>Đáp án đã lưu: ${escapeHtml(word.definition)}</small></article><article><strong>Phần đặt câu</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu gợi ý: ${escapeHtml(result.corrected_sentence)}</small></article></div><div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · lần ôn tiếp theo ${intervalLabel(projectedInterval(word, result.recommended_grade), result.recommended_grade)}</span><button class="primary-btn" id="continue-review">Tiếp tục →</button></div><p class="ai-disclaimer">Nhận xét AI có thể chưa hoàn hảo; hãy dùng như một gợi ý học tập.</p></section>` : '';
-  $('#review-stage').innerHTML = `<div class="review-session"><div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div><div class="review-question-card"><div class="review-word">${word.partOfSpeech ? `<span class="pos-label pos-${escapeHtml(word.partOfSpeech)}">${escapeHtml(posName(word.partOfSpeech))}</span>` : ''}<h2>${escapeHtml(word.term)}</h2><p>Viết lại điều bạn nhớ, sau đó dùng từ này trong một câu tiếng Anh.</p></div><form class="answer-form" id="gemini-answer-form"><label><span>1 · NGHĨA CỦA TỪ</span><textarea id="review-meaning" rows="3" maxlength="1000" placeholder="Nhập nghĩa bằng cách hiểu của bạn..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.meaning)}</textarea></label><label><span>2 · ĐẶT MỘT CÂU VỚI TỪ NÀY</span><textarea id="review-sentence" rows="3" maxlength="1000" placeholder="Write an English sentence using this word..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra nghĩa, ngữ pháp và cách dùng.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Kiểm tra đáp án ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
+  const savedDefinitions = definitionText(word, true);
+  const reviewPosLabels = wordParts(word).map((part) => `<span class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</span>`).join('');
+  const feedback = result ? `<section class="gemini-feedback"><div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Nghĩa</em></b><b>${result.sentence_score}<small>/10</small><em>Đặt câu</em></b></div></div><div class="feedback-grid"><article><strong>Phần nghĩa</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>Đáp án đã lưu: ${escapeHtml(savedDefinitions)}</small></article><article><strong>Phần đặt câu</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu gợi ý: ${escapeHtml(result.corrected_sentence)}</small></article></div><div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · lần ôn tiếp theo ${intervalLabel(projectedInterval(word, result.recommended_grade), result.recommended_grade)}</span><button class="primary-btn" id="continue-review">Tiếp tục →</button></div><p class="ai-disclaimer">Nhận xét AI có thể chưa hoàn hảo; hãy dùng như một gợi ý học tập.</p></section>` : '';
+  $('#review-stage').innerHTML = `<div class="review-session"><div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div><div class="review-question-card"><div class="review-word"><div class="review-pos-labels">${reviewPosLabels}</div><h2>${escapeHtml(word.term)}</h2><p>Viết lại điều bạn nhớ, sau đó dùng từ này trong một câu tiếng Anh.</p></div><form class="answer-form" id="gemini-answer-form"><label><span>1 · NGHĨA CỦA TỪ</span><textarea id="review-meaning" rows="3" maxlength="1000" placeholder="Nhập nghĩa bằng cách hiểu của bạn..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.meaning)}</textarea></label><label><span>2 · ĐẶT MỘT CÂU VỚI TỪ NÀY</span><textarea id="review-sentence" rows="3" maxlength="1000" placeholder="Write an English sentence using this word..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra nghĩa, ngữ pháp và cách dùng.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Kiểm tra đáp án ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
   updateQuickTimer();
 }
 
@@ -469,7 +518,7 @@ async function submitGeminiAnswer(event) {
   review.checking = true;
   renderReviewCard();
   try {
-    const result = await api.checkGeminiAnswer({ word: word.term, partOfSpeech: posName(word.partOfSpeech), savedDefinition: word.definition, meaning, sentence });
+    const result = await api.checkGeminiAnswer({ word: word.term, partOfSpeech: wordParts(word).map(posName).join(', '), savedDefinition: definitionText(word, true), meaning, sentence });
     if (state.review !== review) return;
     review.result = result;
     review.checking = false;
@@ -608,7 +657,34 @@ function renderSettings() {
   $('#notification-toggle').checked = Boolean(state.data.settings.notifications);
   $('#notification-time').value = state.data.settings.notificationTime || '19:30';
   refreshGeminiStatus();
+  refreshUpdateStatus();
   renderGlobal();
+}
+
+function renderUpdateStatus(status) {
+  if (!status) return;
+  const previousState = state.updateStatus?.state;
+  state.updateStatus = status;
+  const statusNode = $('#update-status');
+  const button = $('#check-update-btn');
+  const progress = $('#update-progress');
+  const progressBar = $('#update-progress-bar');
+  if (!statusNode || !button || !progress || !progressBar) return;
+  statusNode.textContent = status.message || `Phiên bản hiện tại · ${status.currentVersion || ''}`;
+  statusNode.classList.toggle('update-error', status.state === 'error');
+  progress.classList.toggle('hidden', !['downloading', 'downloaded'].includes(status.state));
+  progressBar.style.width = `${Math.max(0, Math.min(100, Number(status.percent) || 0))}%`;
+  button.disabled = ['checking', 'downloading'].includes(status.state);
+  button.textContent = status.state === 'downloaded' ? `Khởi động lại & cài ${status.version}`
+    : status.state === 'checking' ? 'Đang kiểm tra...'
+      : status.state === 'downloading' ? `Đang tải ${status.percent || 0}%`
+        : 'Kiểm tra cập nhật';
+  if (status.state === 'downloaded' && previousState && previousState !== 'downloaded') showToast(`Milim ${status.version} đã tải xong. Sẵn sàng cập nhật.`);
+}
+
+async function refreshUpdateStatus() {
+  try { renderUpdateStatus(await api.updateStatus()); }
+  catch { renderUpdateStatus({ state: 'error', message: 'Không thể đọc trạng thái cập nhật.' }); }
 }
 
 async function refreshGeminiStatus() {
@@ -659,7 +735,12 @@ function bindEvents() {
     if (go) navigate(go.dataset.go);
 
     const pos = event.target.closest('[data-pos]');
-    if (pos) { state.selectedPos = state.selectedPos === pos.dataset.pos ? '' : pos.dataset.pos; renderPosOptions(); }
+    if (pos) {
+      const value = pos.dataset.pos;
+      state.selectedPos = state.selectedPos.includes(value) ? state.selectedPos.filter((item) => item !== value) : [...state.selectedPos, value];
+      renderPosOptions();
+      renderDefinitionFields();
+    }
 
     const deck = event.target.closest('[data-deck-date]');
     if (deck) { state.selectedDate = deck.dataset.deckDate; navigate('library'); }
@@ -708,8 +789,8 @@ function bindEvents() {
     const duplicate = value && state.data.words.find((word) => normalizedTerm(word.term) === value && word.id !== state.editingId);
     $('#duplicate-hint').textContent = duplicate ? `Đã có trong bộ ${dateLabel(wordDate(duplicate))} — milim sẽ không thêm trùng.` : '';
   });
-  $('#definition-input').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
+  $('#definition-fields').addEventListener('keydown', (event) => {
+    if (event.target.matches('.definition-input') && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
   });
   $('#search-input').addEventListener('input', renderLibrary);
   $('#mastery-filter').addEventListener('change', renderLibrary);
@@ -738,6 +819,18 @@ function bindEvents() {
       button.disabled = false;
       button.textContent = 'Lưu & kiểm tra';
     }
+  });
+  $('#check-update-btn').addEventListener('click', async () => {
+    const status = state.updateStatus;
+    if (status?.state === 'downloaded') {
+      askConfirm('Cài đặt bản cập nhật?', `Milim ${status.version} sẽ được cài sau khi ứng dụng khởi động lại. Dữ liệu học của bạn vẫn được giữ nguyên.`, async () => {
+        closeConfirm();
+        await api.installUpdate();
+      }, 'Khởi động lại');
+      return;
+    }
+    try { renderUpdateStatus(await api.checkForUpdates()); }
+    catch { renderUpdateStatus({ state: 'error', message: 'Chưa thể kiểm tra cập nhật. Hãy thử lại sau.' }); }
   });
   $('#export-btn').addEventListener('click', async () => {
     try { const result = await api.exportData(state.data); if (!result.canceled) showToast('Đã tạo tệp sao lưu an toàn.'); }
@@ -773,7 +866,9 @@ async function init() {
     showToast('Không đọc được dữ liệu cũ. Milim đã mở một trang mới.', '!', true);
   }
   bindEvents();
+  api.onUpdateStatus?.(renderUpdateStatus);
   renderPosOptions();
+  renderDefinitionFields();
   renderHome();
   renderReviewWelcome();
   renderSettings();
