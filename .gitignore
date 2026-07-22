@@ -1,0 +1,10 @@
+node_modules/
+release/
+*.log
+*-smoke.png
+.DS_Store
+milim/
+dist/
+release/
+out/
+tmp/

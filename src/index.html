@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>milim</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="titlebar">
+        <div class="titlebar-drag"><span class="titlebar-name">milim</span></div>
+        <div class="window-actions">
+          <button id="minimize-btn" aria-label="Thu nhỏ">&#8722;</button>
+          <button id="maximize-btn" aria-label="Phóng to">&#9633;</button>
+          <button id="close-btn" class="close" aria-label="Đóng">&#10005;</button>
+        </div>
+      </header>
+
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../assets/milim-icon-rounded.png" alt="Mèo milim" />
+          <div><strong>milim</strong><span>little words, big dreams</span></div>
+        </div>
+
+        <nav class="main-nav" aria-label="Điều hướng chính">
+          <button class="nav-item active" data-view="home">
+            <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5v8a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+            <span>Hôm nay</span>
+          </button>
+          <button class="nav-item" data-view="add">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Thêm từ</span><kbd>Ctrl N</kbd>
+          </button>
+          <button class="nav-item" data-view="library">
+            <svg viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2zM18 7h2v13H8"/></svg>
+            <span>Bộ từ của tôi</span>
+          </button>
+          <button class="nav-item" data-view="review">
+            <svg viewBox="0 0 24 24"><path d="M5 6h14v12H5zM8 3v3m8-3v3M9 11h6m-6 3h4"/></svg>
+            <span>Ôn tập</span><b class="due-badge" id="nav-due-count">0</b>
+          </button>
+          <button class="nav-item" data-view="stats">
+            <svg viewBox="0 0 24 24"><path d="M5 20v-6h3v6zm6 0V7h3v13zm6 0V11h3v9"/></svg>
+            <span>Thống kê</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="streak-card">
+            <div class="streak-icon">✦</div>
+            <div><strong><span id="sidebar-streak">0</span> ngày</strong><span>Chuỗi học hiện tại</span></div>
+          </div>
+          <button class="nav-item" data-view="settings">
+            <svg viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm8 3 2-1-2-4-2 .5-1.5-1.2L16 3h-5l-.5 2.3L9 6.5 7 6 4.5 10 6 12l-.2 1.8L4 15l2.5 4 2.4-.7 1.6 1.2L11 22h5l.5-2.5 1.6-1.2 2.4.7L23 15l-1.8-1.2z"/></svg>
+            <span>Cài đặt</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="content">
+        <section class="view active" id="view-home">
+          <div class="page-heading home-heading">
+            <div><p class="eyebrow" id="today-label"></p><h1>Chào bạn, hôm nay mình học gì nhỉ?</h1><p>Mỗi từ nhỏ là một bước gần hơn đến điều bạn muốn.</p></div>
+            <button class="icon-button" id="home-notification" title="Cài đặt nhắc học">♡</button>
+          </div>
+
+          <div class="hero-grid">
+            <article class="hero-card">
+              <div class="hero-copy"><span class="pill">HÔM NAY</span><h2><span id="hero-due-count">0</span> từ đang chờ bạn ôn</h2><p id="hero-message">Thêm vài từ mới để bắt đầu hành trình cùng milim nhé.</p><div class="hero-actions"><button class="primary-btn" id="hero-review-btn">Bắt đầu ôn</button><button class="soft-btn" data-go="add">+ Thêm từ mới</button></div></div>
+              <img src="../assets/milim-icon-rounded.png" alt="Mèo milim đang cổ vũ" />
+            </article>
+            <article class="daily-goal card">
+              <div class="card-title"><div><span>Mục tiêu hôm nay</span><strong id="goal-text">0 / 10 từ</strong></div><span class="mini-flower">✿</span></div>
+              <div class="progress-track"><i id="goal-progress"></i></div>
+              <p id="goal-caption">Một khởi đầu dịu dàng đang đợi bạn.</p>
+              <div class="tiny-stats"><div><b id="today-added">0</b><span>Đã thêm</span></div><div><b id="today-reviewed">0</b><span>Đã ôn</span></div><div><b id="home-streak">0</b><span>Chuỗi ngày</span></div></div>
+            </article>
+          </div>
+
+          <div class="section-heading"><div><h2>Bộ từ gần đây</h2><p>Mở lại những ngày bạn đã học.</p></div><button class="text-btn" data-go="library">Xem tất cả →</button></div>
+          <div class="deck-grid" id="recent-decks"></div>
+        </section>
+
+        <section class="view" id="view-add">
+          <div class="page-heading"><div><p class="eyebrow">THÊM TỪ MỚI</p><h1>Ghi lại một từ mới</h1><p>Chỉ cần thuật ngữ và cách bạn muốn ghi nhớ nó.</p></div></div>
+          <form id="word-form" class="add-card">
+            <div class="entry-grid">
+              <label class="field"><span>THUẬT NGỮ <em>ENGLISH</em></span><input id="term-input" autocomplete="off" maxlength="120" placeholder="e.g. serendipity" /><small id="duplicate-hint"></small></label>
+              <label class="field"><span>ĐỊNH NGHĨA <em>TÙY Ý</em></span><textarea id="definition-input" rows="3" maxlength="1000" placeholder="Nhập nghĩa hoặc cách bạn muốn ghi nhớ..."></textarea></label>
+            </div>
+            <fieldset class="pos-picker"><legend>TỪ LOẠI <span>không bắt buộc</span></legend><div id="pos-options"></div></fieldset>
+            <div class="form-footer"><p><kbd>Enter</kbd> chuyển ô · <kbd>Ctrl Enter</kbd> lưu nhanh</p><button class="primary-btn add-submit" type="submit">Thêm vào hôm nay <span>→</span></button></div>
+          </form>
+          <div class="section-heading compact"><div><h2>Vừa thêm hôm nay</h2><p id="recent-added-caption"></p></div></div>
+          <div class="word-list" id="recent-added-list"></div>
+        </section>
+
+        <section class="view" id="view-library">
+          <div class="page-heading library-heading"><div><p class="eyebrow">THƯ VIỆN</p><h1>Bộ từ của tôi</h1><p>Mỗi ngày học là một trang nhỏ trong hành trình của bạn.</p></div><button class="primary-btn" data-go="add">+ Thêm từ</button></div>
+          <div class="library-toolbar"><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="search-input" placeholder="Tìm thuật ngữ hoặc định nghĩa..." /></label><select id="mastery-filter"><option value="all">Tất cả trạng thái</option><option value="new">Từ mới</option><option value="learning">Đang học</option><option value="mastered">Đã ghi nhớ</option></select></div>
+          <div class="library-layout"><aside class="date-list" id="date-list"></aside><div class="deck-detail" id="deck-detail"></div></div>
+        </section>
+
+        <section class="view" id="view-review">
+          <div class="review-header"><div><p class="eyebrow">SPACED REPETITION</p><h1 id="review-title">Ôn tập hôm nay</h1></div><button class="soft-btn review-exit hidden" id="review-exit">Kết thúc</button></div>
+          <div id="review-stage"></div>
+        </section>
+
+        <section class="view" id="view-stats">
+          <div class="page-heading"><div><p class="eyebrow">TIẾN BỘ</p><h1>Những bước nhỏ của bạn</h1><p>Không cần vội — đều đặn đã là một thành tựu rồi.</p></div></div>
+          <div class="stat-cards" id="stat-cards"></div>
+          <div class="stats-grid"><article class="card chart-card"><div class="section-heading small"><div><h2>Hoạt động 7 ngày</h2><p>Số lượt thêm và ôn từ.</p></div></div><div class="bar-chart" id="weekly-chart"></div></article><article class="card mastery-card"><div class="section-heading small"><div><h2>Mức độ ghi nhớ</h2><p>Tổng quan kho từ của bạn.</p></div></div><div id="mastery-breakdown"></div></article></div>
+          <article class="card heatmap-card"><div class="section-heading small"><div><h2>Lịch học 16 tuần</h2><p>Màu đậm hơn nghĩa là bạn đã học nhiều hơn trong ngày đó.</p></div><div class="heatmap-legend"><span>Ít</span><i></i><i></i><i></i><i></i><span>Nhiều</span></div></div><div class="calendar-heatmap" id="calendar-heatmap"></div></article>
+          <article class="card difficult-card"><div class="section-heading small"><div><h2>Cần ôn thêm</h2><p>Các từ bạn thường quên sẽ được ưu tiên trong lịch ôn.</p></div></div><div class="word-list" id="difficult-list"></div></article>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="page-heading"><div><p class="eyebrow">CÀI ĐẶT</p><h1>Không gian của bạn</h1><p>Điều chỉnh milim để việc học luôn thật nhẹ nhàng.</p></div></div>
+          <div class="settings-grid">
+            <article class="settings-card"><div><span class="settings-icon">♡</span><h2>Nhắc mình ôn tập</h2><p>Milim sẽ nhắc khi còn từ đến hạn ôn.</p></div><label class="switch"><input id="notification-toggle" type="checkbox" /><span></span></label><label class="time-field">Thời gian nhắc<input id="notification-time" type="time" /></label></article>
+            <article class="settings-card gemini-card"><div><span class="settings-icon">✦</span><h2>Gemini chấm bài</h2><p>API key được mã hóa trên máy và chỉ gửi trực tiếp đến Google Gemini.</p></div><div class="api-key-row"><input id="gemini-key-input" type="password" autocomplete="off" placeholder="Dán Gemini API key..." /><button class="primary-btn" id="save-gemini-key">Lưu & kiểm tra</button></div><p class="api-status" id="gemini-status">Đang kiểm tra cấu hình...</p></article>
+            <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
+          </div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v1.2.3</span></h2><p>Made softly, for your English journey.</p></div></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status"><span id="toast-icon">✓</span><p id="toast-message"></p></div>
+    <div class="modal-backdrop hidden" id="confirm-modal"><div class="confirm-box"><div class="confirm-icon">?</div><h2 id="confirm-title">Bạn chắc chứ?</h2><p id="confirm-message"></p><div><button class="soft-btn" id="confirm-cancel">Để sau</button><button class="danger-btn" id="confirm-accept">Đồng ý</button></div></div></div>
+    <div class="modal-backdrop hidden" id="history-modal"><div class="history-box"><div class="history-head"><div><p class="eyebrow">LỊCH SỬ ÔN TẬP</p><h2 id="history-word"></h2><p id="history-definition"></p></div><button id="history-close" aria-label="Đóng">×</button></div><div class="history-summary" id="history-summary"></div><div class="history-pattern" id="history-pattern"></div><div class="history-list" id="history-list"></div></div></div>
+    <script src="app.js"></script>
+  </body>
+</html>
