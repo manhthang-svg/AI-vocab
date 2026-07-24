@@ -12,7 +12,7 @@ const POS_OPTIONS = [
 const api = window.milim || {
   async loadData() {
     const saved = localStorage.getItem('milim-browser-data');
-    return saved ? JSON.parse(saved) : { version: 1, words: [], settings: {} };
+    return saved ? JSON.parse(saved) : { version: 2, words: [], speakingErrors: [], settings: {} };
   },
   async saveData(data) { localStorage.setItem('milim-browser-data', JSON.stringify(data)); return { ok: true }; },
   async exportData() { return { canceled: true }; },
@@ -22,6 +22,9 @@ const api = window.milim || {
   async saveGeminiKey() { return { ok: true, model: 'gemini-2.5-flash' }; },
   async checkGeminiAnswer(payload) {
     return { meaning_score: 8, sentence_score: 8, meaning_feedback: 'Đúng nghĩa chính.', sentence_feedback: 'Câu dùng từ phù hợp.', corrected_sentence: payload.sentence, overall_feedback: 'Làm tốt.', recommended_grade: 'good' };
+  },
+  async generateRecallChallenge() {
+    return { vietnamese_sentence: 'Tin tức bất ngờ ấy khiến mọi người vô cùng phấn khích.', suggested_answer: 'The unexpected news thrilled everyone.' };
   },
   async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
   async checkForUpdates() { return this.updateStatus(); },
@@ -36,6 +39,7 @@ const state = {
   selectedDate: null,
   selectedPos: [],
   editingId: null,
+  editingSpeakingId: null,
   review: null,
   geminiConfigured: false,
   geminiModel: 'gemini-2.5-flash',
@@ -109,8 +113,15 @@ function normalizeWord(word) {
 
 function normalizeData(data) {
   return {
-    version: 1,
+    version: 2,
     words: Array.isArray(data?.words) ? data.words.map(normalizeWord) : [],
+    speakingErrors: Array.isArray(data?.speakingErrors) ? data.speakingErrors.map((item) => ({
+      id: item.id || uid(),
+      error: String(item.error || ''),
+      correction: String(item.correction || ''),
+      createdAt: item.createdAt || new Date().toISOString(),
+      createdDate: item.createdDate || localDate(item.createdAt || new Date())
+    })) : [],
     settings: {
       notifications: true,
       notificationTime: '19:30',
@@ -183,6 +194,7 @@ function activityDates() {
     dates.add(wordDate(word));
     word.srs.history.forEach((item) => dates.add(localDate(item.at)));
   });
+  state.data.speakingErrors.forEach((item) => dates.add(item.createdDate || localDate(item.createdAt)));
   return dates;
 }
 
@@ -252,6 +264,7 @@ function navigate(view) {
   if (view === 'add') renderRecentAdded();
   if (view === 'library') renderLibrary();
   if (view === 'review' && !state.review) renderReviewWelcome();
+  if (view === 'speaking') renderSpeaking();
   if (view === 'stats') renderStats();
   if (view === 'settings') renderSettings();
   if (view === 'add') setTimeout(() => $('#term-input').focus(), 100);
@@ -262,6 +275,9 @@ function renderGlobal() {
   $('#nav-due-count').textContent = due > 99 ? '99+' : due;
   $('#nav-due-count').classList.toggle('show', due > 0);
   $('#sidebar-streak').textContent = streak();
+  const speakingToday = state.data.speakingErrors.filter((item) => (item.createdDate || localDate(item.createdAt)) === localDate()).length;
+  $('#nav-speaking-count').textContent = speakingToday > 99 ? '99+' : speakingToday;
+  $('#nav-speaking-count').classList.toggle('show', speakingToday > 0);
   document.body.classList.remove('dark');
 }
 
@@ -415,7 +431,7 @@ function showWordHistory(id) {
   $('#history-pattern').innerHTML = history.length
     ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần).</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
     : '<p>Từ này chưa có lần ôn nào.</p>';
-  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Nghĩa ${item.meaningScore}/10</span><span>Câu ${item.sentenceScore}/10</span>` : `<span>Lịch tiếp theo: ${item.interval || 0} ngày</span>`}</div></div>`).join('') : '';
+  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : `<span>Lịch tiếp theo: ${item.interval || 0} ngày</span>`}</div></div>`).join('') : '';
   $('#history-modal').classList.remove('hidden');
 }
 
@@ -444,6 +460,71 @@ function renderLibrary() {
   renderGlobal();
 }
 
+function renderSpeaking() {
+  const items = [...state.data.speakingErrors].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const groups = items.reduce((result, item) => {
+    const key = item.createdDate || localDate(item.createdAt);
+    (result[key] ||= []).push(item);
+    return result;
+  }, {});
+  const todayCount = groups[localDate()]?.length || 0;
+  $('#speaking-caption').textContent = items.length
+    ? `${items.length} lỗi đã ghi · ${todayCount} lỗi hôm nay`
+    : 'Chưa có lỗi nào được ghi lại';
+  $('#speaking-journal').innerHTML = items.length
+    ? Object.keys(groups).sort().reverse().map((key) => `
+      <section class="speaking-day">
+        <div class="speaking-day-head"><div><strong>${escapeHtml(dateLabel(key, true))}</strong><span>${groups[key].length} ghi chép</span></div><time>${escapeHtml(key)}</time></div>
+        <div class="speaking-error-list">${groups[key].map((item) => `
+          <article class="speaking-error-card" data-speaking-id="${escapeHtml(item.id)}">
+            <div class="speaking-error-side wrong"><span>ĐÃ NÓI / GHI SAI</span><p>${escapeHtml(item.error).replace(/\n/g, '<br>')}</p></div>
+            <div class="speaking-error-divider">→</div>
+            <div class="speaking-error-side fixed"><span>CÁCH SỬA</span><p>${escapeHtml(item.correction).replace(/\n/g, '<br>')}</p></div>
+            <button class="speaking-delete" data-speaking-action="delete" title="Xóa ghi chép">×</button>
+          </article>`).join('')}</div>
+      </section>`).join('')
+    : emptyState('Sổ speaking đang trống', 'Sau mỗi lần nói, ghi lại một lỗi nhỏ và cách sửa ở đây.');
+  renderGlobal();
+}
+
+async function submitSpeakingError(event) {
+  event.preventDefault();
+  const errorInput = $('#speaking-error-input');
+  const correctionInput = $('#speaking-correction-input');
+  const error = errorInput.value.trim();
+  const correction = correctionInput.value.trim();
+  if (!error || !correction) {
+    showToast('Hãy nhập cả lỗi sai và cách sửa.', '!', true);
+    (!error ? errorInput : correctionInput).focus();
+    return;
+  }
+  state.data.speakingErrors.push({
+    id: uid(),
+    error,
+    correction,
+    createdAt: new Date().toISOString(),
+    createdDate: localDate()
+  });
+  await persist(false);
+  errorInput.value = '';
+  correctionInput.value = '';
+  renderSpeaking();
+  showToast('Đã lưu lỗi speaking vào nhật ký hôm nay.');
+  errorInput.focus();
+}
+
+function deleteSpeakingError(id) {
+  const item = state.data.speakingErrors.find((entry) => entry.id === id);
+  if (!item) return;
+  askConfirm('Xóa ghi chép này?', 'Lỗi speaking và phần sửa tương ứng sẽ bị xóa khỏi nhật ký.', async () => {
+    state.data.speakingErrors = state.data.speakingErrors.filter((entry) => entry.id !== id);
+    await persist(false);
+    closeConfirm();
+    renderSpeaking();
+    showToast('Đã xóa ghi chép speaking.');
+  }, 'Xóa ghi chép');
+}
+
 function renderReviewWelcome() {
   const due = dueWords();
   const overdue = overdueWords();
@@ -451,7 +532,7 @@ function renderReviewWelcome() {
   $('#review-title').textContent = 'Ôn tập hôm nay';
   $('#review-exit').classList.add('hidden');
   const overdueList = overdue.slice(0, 5).map((word) => `<span>${escapeHtml(word.term)}</span>`).join('');
-  $('#review-stage').innerHTML = `<div class="review-dashboard"><div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><h2>${due.length ? `${due.length} từ đang chờ ôn` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Mỗi câu trả lời sẽ được Gemini kiểm tra nghĩa, ngữ pháp và cách dùng từ.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên nhanh hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p>${!state.geminiConfigured ? '<div class="gemini-notice"><strong>Chưa kết nối Gemini</strong><span>Thêm API key trong Cài đặt để bắt đầu chấm bài.</span><button class="text-btn" data-go="settings">Thiết lập →</button></div>' : `<div class="gemini-ready">✦ Gemini ${escapeHtml(state.geminiModel)} đã sẵn sàng</div>`}<div class="review-summary"><span>${state.data.words.length} từ tất cả</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Bắt đầu ôn</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Ôn nhanh 5 phút</button>' : ''}</div></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Đã qua ngày ôn dự kiến. Hoàn thành nhóm này trước để lịch học cân bằng lại.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
+  $('#review-stage').innerHTML = `<div class="review-dashboard"><div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">VIỆT → ANH</span><h2>${due.length ? `${due.length} câu đang chờ bạn dịch` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Gemini tạo câu tiếng Việt, giấu hoàn toàn từ mục tiêu và chấm bản dịch tiếng Anh của bạn.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên nhanh hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p>${!state.geminiConfigured ? '<div class="gemini-notice"><strong>Chưa kết nối Gemini</strong><span>Thêm API key trong Cài đặt để tạo và chấm câu hỏi.</span><button class="text-btn" data-go="settings">Thiết lập →</button></div>' : `<div class="gemini-ready">✦ Gemini ${escapeHtml(state.geminiModel)} đã sẵn sàng</div>`}<div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Bắt đầu active recall</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Ôn nhanh 5 phút</button>' : ''}</div></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Các câu sẽ được xáo trộn; từ mục tiêu không xuất hiện trước khi bạn trả lời.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
 }
 
 function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
@@ -459,7 +540,22 @@ function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
   if (!state.geminiConfigured) { showToast('Hãy thiết lập Gemini API key trước khi ôn.', '!', true); navigate('settings'); return; }
   const shuffled = shuffleWords(words);
   const selected = options.quick ? shuffled.slice(0, 20) : shuffled;
-  state.review = { queue: selected.map((word) => word.id), total: selected.length, answered: 0, correct: 0, requeued: new Set(), title, quick: Boolean(options.quick), endsAt: options.quick ? Date.now() + 5 * 60 * 1000 : null, checking: false, result: null, draft: { meaning: '', sentence: '' } };
+  state.review = {
+    queue: selected.map((word) => word.id),
+    total: selected.length,
+    answered: 0,
+    correct: 0,
+    requeued: new Set(),
+    title,
+    quick: Boolean(options.quick),
+    endsAt: options.quick ? Date.now() + 5 * 60 * 1000 : null,
+    checking: false,
+    result: null,
+    draft: { sentence: '' },
+    challenge: null,
+    challengeLoading: false,
+    challengeError: ''
+  };
   navigate('review');
   $('#review-title').textContent = title;
   $('#review-exit').classList.remove('hidden');
@@ -493,24 +589,63 @@ function renderReviewCard() {
   const word = state.data.words.find((item) => item.id === review.queue[0]);
   if (!word) { review.queue.shift(); renderReviewCard(); return; }
   const progress = Math.min(100, (review.answered / Math.max(1, review.total)) * 100);
+  if (!review.challenge && !review.challengeLoading && !review.challengeError) loadReviewChallenge(review, word);
   const result = review.result;
+  const challenge = review.challenge;
+  const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Câu ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
+  if (!challenge) {
+    const loadingContent = review.challengeError
+      ? `<div class="challenge-state error"><span>!</span><h2>Chưa tạo được câu hỏi</h2><p>${escapeHtml(review.challengeError)}</p><button class="soft-btn" id="retry-challenge">Thử lại</button></div>`
+      : '<div class="challenge-state"><i class="spinner"></i><h2>Đang chuẩn bị một câu cho bạn…</h2><p>Từ mục tiêu sẽ được giấu hoàn toàn.</p></div>';
+    $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card">${loadingContent}</div></div>`;
+    updateQuickTimer();
+    return;
+  }
   const savedDefinitions = definitionText(word, true);
-  const reviewPosLabels = wordParts(word).map((part) => `<span class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</span>`).join('');
-  const feedback = result ? `<section class="gemini-feedback"><div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Nghĩa</em></b><b>${result.sentence_score}<small>/10</small><em>Đặt câu</em></b></div></div><div class="feedback-grid"><article><strong>Phần nghĩa</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>Đáp án đã lưu: ${escapeHtml(savedDefinitions)}</small></article><article><strong>Phần đặt câu</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu gợi ý: ${escapeHtml(result.corrected_sentence)}</small></article></div><div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · lần ôn tiếp theo ${intervalLabel(projectedInterval(word, result.recommended_grade), result.recommended_grade)}</span><button class="primary-btn" id="continue-review">Tiếp tục →</button></div><p class="ai-disclaimer">Nhận xét AI có thể chưa hoàn hảo; hãy dùng như một gợi ý học tập.</p></section>` : '';
-  $('#review-stage').innerHTML = `<div class="review-session"><div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div><div class="review-question-card"><div class="review-word"><div class="review-pos-labels">${reviewPosLabels}</div><h2>${escapeHtml(word.term)}</h2><p>Viết lại điều bạn nhớ, sau đó dùng từ này trong một câu tiếng Anh.</p></div><form class="answer-form" id="gemini-answer-form"><label><span>1 · NGHĨA CỦA TỪ</span><textarea id="review-meaning" rows="3" maxlength="1000" placeholder="Nhập nghĩa bằng cách hiểu của bạn..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.meaning)}</textarea></label><label><span>2 · ĐẶT MỘT CÂU VỚI TỪ NÀY</span><textarea id="review-sentence" rows="3" maxlength="1000" placeholder="Write an English sentence using this word..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra nghĩa, ngữ pháp và cách dùng.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Kiểm tra đáp án ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
+  const feedback = result ? `
+    <section class="gemini-feedback recall-feedback">
+      <div class="feedback-reveal"><span>TỪ VỪA ĐƯỢC GIẤU</span><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
+      <div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Đúng ý</em></b><b>${result.sentence_score}<small>/10</small><em>Tiếng Anh</em></b></div></div>
+      <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}</small></article></div>
+      <div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · gặp lại sau ${intervalLabel(projectedInterval(word, result.recommended_grade), result.recommended_grade)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>
+      <p class="ai-disclaimer">AI có thể chấp nhận nhiều cách dịch đúng; đáp án gợi ý không phải đáp án duy nhất.</p>
+    </section>` : '';
+  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><b>Không có gợi ý từ</b></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="gemini-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
   updateQuickTimer();
+}
+
+async function loadReviewChallenge(review, word) {
+  if (review.challengeLoading) return;
+  review.challengeLoading = true;
+  review.challengeError = '';
+  renderReviewCard();
+  try {
+    const challenge = await api.generateRecallChallenge({
+      word: word.term,
+      partOfSpeech: wordParts(word).map(posName).join(', '),
+      savedDefinition: definitionText(word, true)
+    });
+    if (state.review !== review || review.queue[0] !== word.id) return;
+    review.challenge = challenge;
+    review.challengeLoading = false;
+    renderReviewCard();
+  } catch (error) {
+    if (state.review !== review) return;
+    review.challengeLoading = false;
+    review.challengeError = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '') || 'Hãy thử lại sau.';
+    renderReviewCard();
+  }
 }
 
 async function submitGeminiAnswer(event) {
   event.preventDefault();
   const review = state.review;
   if (!review || review.checking || review.result) return;
-  const meaning = $('#review-meaning').value.trim();
   const sentence = $('#review-sentence').value.trim();
-  review.draft = { meaning, sentence };
-  if (!meaning || !sentence) {
-    showToast('Hãy hoàn thành cả phần nghĩa và câu ví dụ.', '!', true);
-    (!meaning ? $('#review-meaning') : $('#review-sentence')).focus();
+  review.draft = { sentence };
+  if (!sentence) {
+    showToast('Hãy viết lại câu bằng tiếng Anh.', '!', true);
+    $('#review-sentence').focus();
     return;
   }
   const word = state.data.words.find((item) => item.id === review.queue[0]);
@@ -518,7 +653,15 @@ async function submitGeminiAnswer(event) {
   review.checking = true;
   renderReviewCard();
   try {
-    const result = await api.checkGeminiAnswer({ word: word.term, partOfSpeech: wordParts(word).map(posName).join(', '), savedDefinition: definitionText(word, true), meaning, sentence });
+    const result = await api.checkGeminiAnswer({
+      mode: 'recall',
+      word: word.term,
+      partOfSpeech: wordParts(word).map(posName).join(', '),
+      savedDefinition: definitionText(word, true),
+      vietnamesePrompt: review.challenge.vietnamese_sentence,
+      suggestedAnswer: review.challenge.suggested_answer,
+      sentence
+    });
     if (state.review !== review) return;
     review.result = result;
     review.checking = false;
@@ -584,7 +727,10 @@ async function gradeCurrent(grade, result = null) {
     review.total += 1;
   }
   review.result = null;
-  review.draft = { meaning: '', sentence: '' };
+  review.draft = { sentence: '' };
+  review.challenge = null;
+  review.challengeLoading = false;
+  review.challengeError = '';
   await persist();
   renderGlobal();
   renderReviewCard();
@@ -705,6 +851,7 @@ function renderCurrentView() {
   if (state.view === 'add') renderRecentAdded();
   if (state.view === 'library') renderLibrary();
   if (state.view === 'review') renderReviewWelcome();
+  if (state.view === 'speaking') renderSpeaking();
   if (state.view === 'stats') renderStats();
   if (state.view === 'settings') renderSettings();
   renderGlobal();
@@ -767,10 +914,18 @@ function bindEvents() {
       }
     }
 
+    const speakingRow = event.target.closest('[data-speaking-id]');
+    const speakingAction = event.target.closest('[data-speaking-action]');
+    if (speakingRow && speakingAction?.dataset.speakingAction === 'delete') deleteSpeakingError(speakingRow.dataset.speakingId);
+
     if (event.target.closest('#start-due-review')) startReview(dueWords());
     if (event.target.closest('#start-overdue-review')) startReview(overdueWords(), 'Từ quá hạn');
     if (event.target.closest('#start-quick-review')) startQuickReview();
     if (event.target.closest('#continue-review') && state.review?.result) gradeCurrent(state.review.result.recommended_grade, state.review.result);
+    if (event.target.closest('#retry-challenge') && state.review) {
+      state.review.challengeError = '';
+      renderReviewCard();
+    }
     if (event.target.closest('#finish-review')) endReview();
   });
 
@@ -781,6 +936,7 @@ function bindEvents() {
   $('#hero-review-btn').addEventListener('click', () => navigate('review'));
   $('#home-notification').addEventListener('click', () => navigate('settings'));
   $('#word-form').addEventListener('submit', submitWord);
+  $('#speaking-form').addEventListener('submit', submitSpeakingError);
   $('#term-input').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); $('#definition-input').focus(); }
   });
@@ -791,6 +947,9 @@ function bindEvents() {
   });
   $('#definition-fields').addEventListener('keydown', (event) => {
     if (event.target.matches('.definition-input') && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
+  });
+  $('#speaking-form').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#speaking-form').requestSubmit(); }
   });
   $('#search-input').addEventListener('input', renderLibrary);
   $('#mastery-filter').addEventListener('change', renderLibrary);

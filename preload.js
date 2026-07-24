@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('milim', {
   geminiStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiKey: (key) => ipcRenderer.invoke('gemini:save-key', key),
   checkGeminiAnswer: (payload) => ipcRenderer.invoke('gemini:check-answer', payload),
+  generateRecallChallenge: (payload) => ipcRenderer.invoke('gemini:generate-challenge', payload),
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),

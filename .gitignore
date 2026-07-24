@@ -2,6 +2,7 @@ node_modules/
 release/
 *.log
 *-smoke.png
+milim-2-*.png
 .DS_Store
 milim/
 dist/

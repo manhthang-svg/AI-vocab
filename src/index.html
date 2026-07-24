@@ -38,8 +38,12 @@
             <span>Bộ từ của tôi</span>
           </button>
           <button class="nav-item" data-view="review">
-            <svg viewBox="0 0 24 24"><path d="M5 6h14v12H5zM8 3v3m8-3v3M9 11h6m-6 3h4"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8m-8 4h5"/></svg>
             <span>Ôn tập</span><b class="due-badge" id="nav-due-count">0</b>
+          </button>
+          <button class="nav-item" data-view="speaking">
+            <svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8"/></svg>
+            <span>Speaking Errors</span><b class="due-badge" id="nav-speaking-count">0</b>
           </button>
           <button class="nav-item" data-view="stats">
             <svg viewBox="0 0 24 24"><path d="M5 20v-6h3v6zm6 0V7h3v13zm6 0V11h3v9"/></svg>
@@ -62,13 +66,13 @@
       <main class="content">
         <section class="view active" id="view-home">
           <div class="page-heading home-heading">
-            <div><p class="eyebrow" id="today-label"></p><h1>Chào bạn, hôm nay mình học gì nhỉ?</h1><p>Mỗi từ nhỏ là một bước gần hơn đến điều bạn muốn.</p></div>
+            <div><p class="eyebrow" id="today-label"></p><h1>Hôm nay bạn muốn tiến thêm một chút chứ?</h1><p>Từ vựng, active recall và những lỗi speaking — tất cả trong một nhịp học.</p></div>
             <button class="icon-button" id="home-notification" title="Cài đặt nhắc học">♡</button>
           </div>
 
           <div class="hero-grid">
             <article class="hero-card">
-              <div class="hero-copy"><span class="pill">HÔM NAY</span><h2><span id="hero-due-count">0</span> từ đang chờ bạn ôn</h2><p id="hero-message">Thêm vài từ mới để bắt đầu hành trình cùng milim nhé.</p><div class="hero-actions"><button class="primary-btn" id="hero-review-btn">Bắt đầu ôn</button><button class="soft-btn" data-go="add">+ Thêm từ mới</button></div></div>
+              <div class="hero-copy"><span class="pill">ACTIVE RECALL</span><h2><span id="hero-due-count">0</span> câu đang chờ bạn dịch</h2><p id="hero-message">Thêm vài từ mới để bắt đầu hành trình cùng milim nhé.</p><div class="hero-actions"><button class="primary-btn" id="hero-review-btn">Bắt đầu ôn</button><button class="soft-btn" data-go="add">+ Thêm từ mới</button></div></div>
               <img src="../assets/milim-icon-rounded.png" alt="Mèo milim đang cổ vũ" />
             </article>
             <article class="daily-goal card">
@@ -104,8 +108,20 @@
         </section>
 
         <section class="view" id="view-review">
-          <div class="review-header"><div><p class="eyebrow">SPACED REPETITION</p><h1 id="review-title">Ôn tập hôm nay</h1></div><button class="soft-btn review-exit hidden" id="review-exit">Kết thúc</button></div>
+          <div class="review-header"><div><p class="eyebrow">ACTIVE RECALL · SPACED REPETITION</p><h1 id="review-title">Dịch câu để gọi lại từ</h1><p>Không có gợi ý từ vựng — hãy để trí nhớ tự tìm đường.</p></div><button class="soft-btn review-exit hidden" id="review-exit">Kết thúc</button></div>
           <div id="review-stage"></div>
+        </section>
+
+        <section class="view" id="view-speaking">
+          <div class="page-heading speaking-heading"><div><p class="eyebrow">SPEAKING ERRORS</p><h1>Sổ lỗi khi nói</h1><p>Ghi lại điều đã nói và cách bạn muốn sửa — đơn giản, nhanh, theo từng ngày.</p></div></div>
+          <form id="speaking-form" class="speaking-form">
+            <label class="field"><span>LỖI SAI</span><textarea id="speaking-error-input" rows="4" maxlength="2000" placeholder="Nhập bất cứ điều gì bạn đã nói sai..."></textarea></label>
+            <div class="speaking-arrow" aria-hidden="true">→</div>
+            <label class="field"><span>CÁCH SỬA</span><textarea id="speaking-correction-input" rows="4" maxlength="2000" placeholder="Nhập cách sửa hoặc ghi chú của bạn..."></textarea></label>
+            <div class="speaking-submit"><span>Mọi nội dung được lưu cục bộ trên máy.</span><button class="primary-btn" type="submit">Lưu lỗi speaking</button></div>
+          </form>
+          <div class="speaking-toolbar"><div><h2>Nhật ký gần đây</h2><p id="speaking-caption"></p></div></div>
+          <div class="speaking-journal" id="speaking-journal"></div>
         </section>
 
         <section class="view" id="view-stats">
@@ -124,7 +140,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v1.4.0</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.0.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
