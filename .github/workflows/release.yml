@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run dist
+        run: npm run dist -- --publish never
 
       - name: Publish GitHub Release assets
         uses: softprops/action-gh-release@v2
