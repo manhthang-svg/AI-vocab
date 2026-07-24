@@ -1,6 +1,6 @@
 {
   "name": "milim",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A gentle, local-first English vocabulary companion.",
   "main": "main.js",
   "author": "milim",
@@ -23,6 +23,7 @@
       "output": "release",
       "buildResources": "build"
     },
+    "artifactName": "${productName}-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "preload.js",

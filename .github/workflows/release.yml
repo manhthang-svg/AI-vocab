@@ -25,7 +25,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish GitHub Release
-        run: npm run release
+      - name: Build Windows installer
+        run: npm run dist
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/milim-Setup-*.exe
+            release/milim-Setup-*.exe.blockmap
+            release/latest.yml
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
