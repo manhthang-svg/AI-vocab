@@ -332,8 +332,11 @@ function createWindow() {
             fsrsFeedback: false,
             hiddenRecallWord: false,
             speakingSaved: false,
-            retentionControl: false
+            retentionControl: false,
+            learningTreeVisible: false
           };
+          result.learningTreeVisible = document.querySelector('#home-streak-tree .learning-tree-svg')?.dataset.streak === '1'
+            && document.querySelector('#sidebar-streak-tree .learning-tree-svg')?.dataset.stage === 'sprout';
           document.querySelector('#deck-detail [data-action="history"]')?.click();
           await new Promise(resolve => setTimeout(resolve, 50));
           result.historyVisible = !document.querySelector('#history-modal').classList.contains('hidden');
@@ -369,7 +372,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.speakingSaved || !result.hiddenRecallWord || !result.reviewFeedback || !result.fsrsFeedback || !result.reviewComplete) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.speakingSaved || !result.hiddenRecallWord || !result.reviewFeedback || !result.fsrsFeedback || !result.reviewComplete) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -380,6 +383,20 @@ function createWindow() {
       if (captureView) {
         await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-view="${captureView}"]')?.click()`);
         await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      const captureTreeDays = Math.max(0, Math.floor(Number(process.env.MILIM_CAPTURE_TREE_DAYS) || 0));
+      if (captureTreeDays) {
+        await mainWindow.webContents.executeJavaScript(`(() => {
+          const days = ${captureTreeDays};
+          const stage = globalThis.MilimTree.stageFor(days);
+          const growth = globalThis.MilimTree.nextGrowth(days);
+          document.querySelector('#home-streak').textContent = days;
+          document.querySelector('#tree-stage-label').textContent = stage.label;
+          document.querySelector('#home-streak-tree').innerHTML = globalThis.MilimTree.renderTree(days);
+          document.querySelector('#tree-stage-progress').style.width = growth.progress + '%';
+          document.querySelector('#tree-message').textContent = growth.target ? growth.remaining + ' ngày nữa để cây đạt mốc ' + growth.target.label.toLowerCase() + '.' : 'Cây đã lớn rực rỡ; mỗi ngày tiếp theo sẽ nuôi tán hoa thêm xanh.';
+        })()`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
       const image = await mainWindow.webContents.capturePage();
       await fs.writeFile(capturePath, image.toPNG());

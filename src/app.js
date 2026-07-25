@@ -328,6 +328,22 @@ function streak() {
   return count;
 }
 
+function longestStreak() {
+  return globalThis.MilimTree?.longestStreak?.(activityDates()) || streak();
+}
+
+function treeStage(days) {
+  return globalThis.MilimTree?.stageFor?.(days) || { key: days ? 'sprout' : 'seed', label: days ? 'Mầm non' : 'Hạt giống' };
+}
+
+function treeGrowth(days) {
+  return globalThis.MilimTree?.nextGrowth?.(days) || { target: null, remaining: 0, progress: days ? 100 : 0, current: treeStage(days) };
+}
+
+function treeMarkup(days, compact = false) {
+  return globalThis.MilimTree?.renderTree?.(days, { compact }) || `<span class="tree-fallback">${days ? '♧' : '•'}</span>`;
+}
+
 function groupByDate(words = state.data.words) {
   return words.reduce((groups, word) => {
     const key = wordDate(word);
@@ -389,9 +405,12 @@ function navigate(view) {
 
 function renderGlobal() {
   const due = dueWords().length;
+  const currentStreak = streak();
   $('#nav-due-count').textContent = due > 99 ? '99+' : due;
   $('#nav-due-count').classList.toggle('show', due > 0);
-  $('#sidebar-streak').textContent = streak();
+  $('#sidebar-streak').textContent = currentStreak;
+  $('#sidebar-tree-stage').textContent = treeStage(currentStreak).label;
+  $('#sidebar-streak-tree').innerHTML = treeMarkup(currentStreak, true);
   const speakingToday = state.data.speakingErrors.filter((item) => (item.createdDate || localDate(item.createdAt)) === localDate()).length;
   $('#nav-speaking-count').textContent = speakingToday > 99 ? '99+' : speakingToday;
   $('#nav-speaking-count').classList.toggle('show', speakingToday > 0);
@@ -404,6 +423,9 @@ function renderHome() {
   const reviewedToday = state.data.words.reduce((count, word) => count + word.srs.history.filter((item) => localDate(item.at) === today).length, 0);
   const due = dueWords().length;
   const currentStreak = streak();
+  const bestStreak = longestStreak();
+  const growth = treeGrowth(currentStreak);
+  const stage = treeStage(currentStreak);
   const formatted = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date());
   $('#today-label').textContent = formatted.toUpperCase();
   $('#hero-due-count').textContent = due;
@@ -415,6 +437,15 @@ function renderHome() {
   $('#today-added').textContent = wordsToday.length;
   $('#today-reviewed').textContent = reviewedToday;
   $('#home-streak').textContent = currentStreak;
+  $('#home-streak-tree').innerHTML = treeMarkup(currentStreak);
+  $('#tree-stage-label').textContent = stage.label;
+  $('#tree-best').textContent = `Dài nhất · ${bestStreak} ngày`;
+  $('#tree-stage-progress').style.width = `${growth.progress}%`;
+  $('#tree-message').textContent = currentStreak === 0
+    ? 'Học một từ hoặc ghi một lỗi speaking hôm nay để gieo hạt.'
+    : growth.target
+      ? `${growth.remaining} ngày nữa để cây đạt mốc ${growth.target.label.toLowerCase()}.`
+      : 'Cây đã lớn rực rỡ; mỗi ngày tiếp theo sẽ nuôi tán hoa thêm xanh.';
 
   const groups = groupByDate();
   const keys = Object.keys(groups).sort().reverse().slice(0, 3);
@@ -922,9 +953,11 @@ function renderStats() {
   const mastered = state.data.words.filter((word) => mastery(word) === 'mastered').length;
   const reviewCount = state.data.words.reduce((count, word) => count + word.srs.history.length, 0);
   const currentStreak = streak();
-  $('#stat-cards').innerHTML = [
-    ['♡', total, 'Tổng từ đã lưu'], ['✦', mastered, 'Từ đã ghi nhớ'], ['↻', reviewCount, 'Lượt ôn tập'], ['☼', currentStreak, 'Chuỗi ngày hiện tại']
+  const bestStreak = longestStreak();
+  const regularStats = [
+    ['♡', total, 'Tổng từ đã lưu'], ['✦', mastered, 'Từ đã ghi nhớ'], ['↻', reviewCount, 'Lượt ôn tập']
   ].map(([icon, value, label]) => `<article class="stat-card"><i>${icon}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
+  $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card tree-stat-card"><div class="stat-tree">${treeMarkup(currentStreak, true)}</div><div><strong>${currentStreak} ngày</strong><span>${treeStage(currentStreak).label} · dài nhất ${bestStreak} ngày</span></div></article>`;
 
   const days = Array.from({ length: 7 }, (_, index) => new Date(Date.now() - (6 - index) * DAY));
   const counts = days.map((date) => {

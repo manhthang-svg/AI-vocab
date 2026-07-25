@@ -1388,6 +1388,71 @@ body {
 .history-summary strong { font-size: 17px; }
 .history-entry > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
 
+.learning-tree-card {
+  position: relative;
+  min-height: 350px;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(255, 239, 244, .9), transparent 40%),
+    #fff;
+}
+.tree-card-head { position: relative; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.tree-card-head span, .tree-card-head strong { display: block; }
+.tree-card-head > div > span { color: #a64064; font-size: 9px; font-weight: 800; letter-spacing: 1.1px; }
+.tree-card-head strong { margin-top: 5px; color: #171717; font-size: 17px; }
+.tree-card-head strong span { display: inline; }
+.tree-card-head > b {
+  padding: 6px 9px;
+  border: 1px solid #f0d7df;
+  border-radius: 20px;
+  color: #a64064;
+  background: #fff6f9;
+  font-size: 9px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.learning-tree { display: grid; place-items: center; height: 155px; margin: -3px 0 4px; overflow: hidden; }
+.learning-tree-svg { display: block; width: 100%; height: 100%; overflow: hidden; }
+.tree-shadow { fill: rgba(92, 64, 51, .055); }
+.tree-ground { fill: #f4e6e1; stroke: #e9d4cd; stroke-width: 1; }
+.tree-trunk { fill: #8c6954; stroke: #72513f; stroke-width: 1.2; stroke-linejoin: round; }
+.tree-branch { fill: none; stroke: #795945; stroke-width: 4.5; stroke-linecap: round; }
+.tree-leaf { fill: #799a7b; stroke: #668468; stroke-width: .8; opacity: 0; animation: tree-appear .38s ease forwards; animation-delay: calc(var(--leaf-index) * 18ms); }
+.tree-leaf-1 { fill: #91ad89; }
+.tree-leaf-2 { fill: #66896e; }
+.tree-flower { fill: #e789a7; stroke: #d36c90; stroke-width: .5; opacity: 0; animation: tree-appear .4s ease forwards; animation-delay: calc(var(--flower-index) * 34ms + 100ms); }
+.tree-flower-center { fill: #f7d99a; stroke: #dcae60; }
+.tree-seed { fill: #9b6c52; stroke: #7f563f; stroke-width: .8; }
+.tree-seed path { fill: #8dab87; stroke: #708e70; }
+@keyframes tree-appear { from { opacity: 0; } to { opacity: 1; } }
+.tree-growth-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tree-growth-copy p { margin: 0; color: #626262; font-size: 10px; line-height: 1.4; }
+.tree-growth-copy span { flex: none; color: #9a9a9a; font-size: 9px; }
+.tree-stage-progress { height: 3px; margin: 9px 0 13px; overflow: hidden; border-radius: 4px; background: #f0e7ea; }
+.tree-stage-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: #cd517c; transition: width .35s ease; }
+.tree-daily-goal { padding-top: 13px; border-top: 1px solid #eeeeee; }
+.tree-daily-goal > div:first-child { display: flex; align-items: center; justify-content: space-between; }
+.tree-daily-goal span { color: #777; font-size: 10px; }
+.tree-daily-goal strong { color: #222; font-size: 11px; }
+.tree-daily-goal .progress-track { height: 5px; margin: 9px 0 6px; }
+.tree-daily-goal > p { margin: 0; color: #8b8b8b; font-size: 9px; }
+.tree-today-stats { display: flex; gap: 12px; margin-top: 9px; }
+.tree-today-stats span { padding: 4px 7px; border-radius: 6px; color: #777; background: #f6f6f6; font-size: 9px; }
+.tree-today-stats b { color: #a13b61; }
+.streak-card { gap: 8px; }
+.streak-icon { flex: none; width: 47px; height: 47px; padding: 1px; overflow: hidden; background: #fff7f9 !important; }
+.streak-icon .learning-tree-svg { width: 50px; height: 50px; }
+.streak-card > div:last-child { min-width: 0; }
+.streak-card > div:last-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-stat-card { display: flex; align-items: center; gap: 11px; padding: 13px 15px; }
+.stat-tree { flex: none; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 12px; background: #fff7f9; }
+.stat-tree .learning-tree-svg { width: 62px; height: 62px; }
+.tree-stat-card > div:last-child { min-width: 0; }
+.tree-stat-card strong { font-size: 18px; }
+.tree-stat-card span { line-height: 1.35; }
+.tree-fallback { color: #789378; font-size: 28px; }
+
 .toast, .confirm-box, .history-box {
   border: 1px solid #d7d7d7;
   border-radius: 14px;
@@ -1422,4 +1487,8 @@ body {
   .speaking-delete { grid-column: 2; grid-row: 1; }
   .library-layout { grid-template-columns: 1fr; }
   .date-list { max-height: 180px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-leaf, .tree-flower { animation: none; opacity: 1; }
 }
