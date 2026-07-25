@@ -14,12 +14,13 @@ const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
 
 const emptyData = () => ({
-  version: 2,
+  version: 3,
   words: [],
   speakingErrors: [],
   settings: {
     notifications: true,
     notificationTime: '19:30',
+    fsrsRetention: 0.9,
     theme: 'light',
     lastNotificationDate: null
   }
@@ -242,7 +243,7 @@ function normalizeData(value) {
   const fallback = emptyData();
   if (!value || typeof value !== 'object') return fallback;
   return {
-    version: 2,
+    version: 3,
     words: Array.isArray(value.words) ? value.words : [],
     speakingErrors: Array.isArray(value.speakingErrors) ? value.speakingErrors : [],
     settings: { ...fallback.settings, ...(value.settings || {}) }
@@ -328,8 +329,10 @@ function createWindow() {
             heatmapCells: 0,
             reviewComplete: false,
             reviewFeedback: false,
+            fsrsFeedback: false,
             hiddenRecallWord: false,
-            speakingSaved: false
+            speakingSaved: false,
+            retentionControl: false
           };
           document.querySelector('#deck-detail [data-action="history"]')?.click();
           await new Promise(resolve => setTimeout(resolve, 50));
@@ -338,6 +341,9 @@ function createWindow() {
           document.querySelector('[data-view="stats"]').click();
           await new Promise(resolve => setTimeout(resolve, 50));
           result.heatmapCells = document.querySelectorAll('#calendar-heatmap .heat-cell').length;
+          document.querySelector('[data-view="settings"]').click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          result.retentionControl = document.querySelector('#retention-input')?.value === '90' && document.querySelector('#retention-value')?.innerText === '90%';
           document.querySelector('[data-view="speaking"]').click();
           document.querySelector('#speaking-error-input').value = 'Yesterday I go to school.';
           document.querySelector('#speaking-correction-input').value = 'Yesterday I went to school.';
@@ -353,6 +359,7 @@ function createWindow() {
           document.querySelector('#gemini-answer-form').requestSubmit();
           await new Promise(resolve => setTimeout(resolve, 250));
           result.reviewFeedback = document.body.innerText.includes('GEMINI NHẬN XÉT');
+          result.fsrsFeedback = document.body.innerText.includes('FSRS hẹn lại');
           if (!${keepReviewFeedback}) {
             document.querySelector('#continue-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 150));
@@ -362,7 +369,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.historyVisible || result.heatmapCells !== 112 || !result.speakingSaved || !result.hiddenRecallWord || !result.reviewFeedback || !result.reviewComplete) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.speakingSaved || !result.hiddenRecallWord || !result.reviewFeedback || !result.fsrsFeedback || !result.reviewComplete) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

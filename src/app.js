@@ -12,7 +12,7 @@ const POS_OPTIONS = [
 const api = window.milim || {
   async loadData() {
     const saved = localStorage.getItem('milim-browser-data');
-    return saved ? JSON.parse(saved) : { version: 2, words: [], speakingErrors: [], settings: {} };
+    return saved ? JSON.parse(saved) : { version: 3, words: [], speakingErrors: [], settings: {} };
   },
   async saveData(data) { localStorage.setItem('milim-browser-data', JSON.stringify(data)); return { ok: true }; },
   async exportData() { return { canceled: true }; },
@@ -51,6 +51,105 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const DAY = 24 * 60 * 60 * 1000;
+const FSRS_RETENTION_DEFAULT = 0.9;
+const FSRS_ALGORITHM = 'FSRS-6';
+const GRADE_TO_RATING = { again: 1, hard: 2, good: 3, easy: 4 };
+
+function normalizedRetention(value) {
+  const retention = Number(value);
+  return Number.isFinite(retention) ? Math.max(0.8, Math.min(0.95, retention)) : FSRS_RETENTION_DEFAULT;
+}
+
+function fsrsScheduler(retention = FSRS_RETENTION_DEFAULT) {
+  if (!globalThis.FSRS?.fsrs) return null;
+  return globalThis.FSRS.fsrs({
+    request_retention: normalizedRetention(retention),
+    maximum_interval: 36500,
+    enable_fuzz: false,
+    enable_short_term: true,
+    learning_steps: ['1m', '10m'],
+    relearning_steps: ['10m']
+  });
+}
+
+function serializeFsrsCard(card) {
+  if (!card) return null;
+  return {
+    due: new Date(card.due).toISOString(),
+    stability: Number(card.stability) || 0,
+    difficulty: Number(card.difficulty) || 0,
+    elapsed_days: Number(card.elapsed_days) || 0,
+    scheduled_days: Number(card.scheduled_days) || 0,
+    learning_steps: Number(card.learning_steps) || 0,
+    reps: Number(card.reps) || 0,
+    lapses: Number(card.lapses) || 0,
+    state: Number(card.state) || 0,
+    last_review: card.last_review ? new Date(card.last_review).toISOString() : null
+  };
+}
+
+function newFsrsCard(now = new Date()) {
+  const date = usableDate(now);
+  if (globalThis.FSRS?.createEmptyCard) return serializeFsrsCard(globalThis.FSRS.createEmptyCard(date));
+  return {
+    due: date.toISOString(),
+    stability: 0,
+    difficulty: 0,
+    elapsed_days: 0,
+    scheduled_days: 0,
+    learning_steps: 0,
+    reps: 0,
+    lapses: 0,
+    state: 0,
+    last_review: null
+  };
+}
+
+function usableDate(value, fallback = new Date()) {
+  const date = new Date(value || fallback);
+  return Number.isNaN(date.getTime()) ? new Date(fallback) : date;
+}
+
+function validFsrsCard(card) {
+  if (!card || Number.isNaN(new Date(card.due).getTime())) return false;
+  if (card.last_review && Number.isNaN(new Date(card.last_review).getTime())) return false;
+  return ['stability', 'difficulty', 'scheduled_days', 'reps', 'lapses', 'state']
+    .every((field) => Number.isFinite(Number(card[field])));
+}
+
+function rebuildFsrsCard(srs, createdAt, retention) {
+  const scheduler = fsrsScheduler(retention);
+  if (!scheduler) return newFsrsCard(createdAt);
+  const created = usableDate(createdAt);
+  let card = globalThis.FSRS.createEmptyCard(created);
+  const reviews = (Array.isArray(srs?.history) ? srs.history : [])
+    .filter((item) => GRADE_TO_RATING[item.grade] && !Number.isNaN(new Date(item.at).getTime()))
+    .sort((a, b) => new Date(a.at) - new Date(b.at));
+  try {
+    reviews.forEach((item) => {
+      card = scheduler.next(card, new Date(item.at), GRADE_TO_RATING[item.grade]).card;
+    });
+    if (reviews.length) return serializeFsrsCard(card);
+  } catch (error) {
+    console.warn('Could not replay legacy review history through FSRS:', error);
+  }
+  if (srs?.lastReviewedAt) {
+    const interval = Math.max(0, Number(srs.interval) || 0);
+    return {
+      due: usableDate(srs.dueAt, new Date(Date.now() + interval * DAY)).toISOString(),
+      stability: Math.max(0.1, interval || 1),
+      difficulty: Math.max(1, Math.min(10, 5 + (2.5 - (Number(srs.ease) || 2.5)) * 2)),
+      elapsed_days: Math.max(0, Math.round((Date.now() - usableDate(srs.lastReviewedAt).getTime()) / DAY)),
+      scheduled_days: interval,
+      learning_steps: 0,
+      reps: Math.max(1, Number(srs.repetitions) || 1),
+      lapses: Math.max(0, Number(srs.lapses) || 0),
+      state: 2,
+      last_review: usableDate(srs.lastReviewedAt).toISOString()
+    };
+  }
+  return newFsrsCard(created);
+}
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
@@ -87,16 +186,31 @@ function wordDate(word) {
   return word.createdDate || localDate(word.createdAt);
 }
 
-function freshSrs() {
-  return { repetitions: 0, interval: 0, ease: 2.5, lapses: 0, dueAt: new Date().toISOString(), lastReviewedAt: null, history: [] };
+function freshSrs(createdAt = new Date()) {
+  const fsrs = newFsrsCard(createdAt);
+  return { algorithm: FSRS_ALGORITHM, fsrs, repetitions: 0, interval: 0, ease: 2.5, lapses: 0, dueAt: fsrs.due, lastReviewedAt: null, history: [] };
 }
 
-function normalizeWord(word) {
+function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
   const legacyPos = Array.isArray(word.partsOfSpeech) ? word.partsOfSpeech : (word.partOfSpeech ? [word.partOfSpeech] : []);
   const definitions = Array.isArray(word.definitions) && word.definitions.length
     ? word.definitions.map((item) => ({ partOfSpeech: String(item.partOfSpeech || ''), definition: String(item.definition || '') }))
     : [{ partOfSpeech: legacyPos[0] || '', definition: String(word.definition || '') }];
   const partsOfSpeech = [...new Set([...legacyPos, ...definitions.map((item) => item.partOfSpeech)].filter(Boolean))];
+  const createdAt = word.createdAt || new Date().toISOString();
+  const previousSrs = word.srs || {};
+  const srs = {
+    ...freshSrs(createdAt),
+    ...previousSrs,
+    history: Array.isArray(previousSrs.history) ? previousSrs.history : []
+  };
+  if (!validFsrsCard(srs.fsrs)) srs.fsrs = rebuildFsrsCard(srs, createdAt, retention);
+  srs.algorithm = FSRS_ALGORITHM;
+  srs.dueAt = srs.fsrs.due || srs.dueAt;
+  srs.interval = Number(srs.fsrs.scheduled_days) || 0;
+  srs.lapses = Number(srs.fsrs.lapses) || Number(srs.lapses) || 0;
+  srs.repetitions = Number(srs.fsrs.reps) || Number(srs.repetitions) || 0;
+  srs.lastReviewedAt = srs.fsrs.last_review || srs.lastReviewedAt || null;
   return {
     ...word,
     id: word.id || uid(),
@@ -105,16 +219,25 @@ function normalizeWord(word) {
     definitions,
     partsOfSpeech,
     partOfSpeech: partsOfSpeech[0] || '',
-    createdAt: word.createdAt || new Date().toISOString(),
-    createdDate: word.createdDate || localDate(word.createdAt || new Date()),
-    srs: { ...freshSrs(), ...(word.srs || {}), history: Array.isArray(word.srs?.history) ? word.srs.history : [] }
+    createdAt,
+    createdDate: word.createdDate || localDate(createdAt),
+    srs
   };
 }
 
 function normalizeData(data) {
+  const settings = {
+    notifications: true,
+    notificationTime: '19:30',
+    fsrsRetention: FSRS_RETENTION_DEFAULT,
+    theme: 'light',
+    lastNotificationDate: null,
+    ...(data?.settings || {})
+  };
+  settings.fsrsRetention = normalizedRetention(settings.fsrsRetention);
   return {
-    version: 2,
-    words: Array.isArray(data?.words) ? data.words.map(normalizeWord) : [],
+    version: 3,
+    words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
     speakingErrors: Array.isArray(data?.speakingErrors) ? data.speakingErrors.map((item) => ({
       id: item.id || uid(),
       error: String(item.error || ''),
@@ -122,13 +245,7 @@ function normalizeData(data) {
       createdAt: item.createdAt || new Date().toISOString(),
       createdDate: item.createdDate || localDate(item.createdAt || new Date())
     })) : [],
-    settings: {
-      notifications: true,
-      notificationTime: '19:30',
-      theme: 'light',
-      lastNotificationDate: null,
-      ...(data?.settings || {})
-    }
+    settings
   };
 }
 
@@ -156,7 +273,7 @@ function definitionText(word, withLabels = false) {
 }
 
 function mastery(word) {
-  if ((word.srs?.interval || 0) >= 21 || (word.srs?.repetitions || 0) >= 5) return 'mastered';
+  if ((word.srs?.fsrs?.stability || word.srs?.interval || 0) >= 21) return 'mastered';
   if (word.srs?.lastReviewedAt) return 'learning';
   return 'new';
 }
@@ -377,7 +494,8 @@ async function submitWord(event) {
     await persist(false);
     showToast('Đã lưu thay đổi cho từ này.');
   } else {
-    state.data.words.push(normalizeWord({ id: uid(), term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt: new Date().toISOString(), createdDate: localDate(), srs: freshSrs() }));
+    const createdAt = new Date().toISOString();
+    state.data.words.push(normalizeWord({ id: uid(), term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt, createdDate: localDate(), srs: freshSrs(createdAt) }, state.data.settings.fsrsRetention));
     await persist(false);
     showToast(`Đã thêm “${term}” vào bộ hôm nay.`);
   }
@@ -416,6 +534,16 @@ function gradeName(grade) {
   return { again: 'Quên', hard: 'Khó', good: 'Nhớ', easy: 'Rất dễ' }[grade] || grade;
 }
 
+function currentRetrievability(word) {
+  const scheduler = fsrsScheduler(state.data?.settings?.fsrsRetention);
+  if (!scheduler || !word.srs?.fsrs || !word.srs.lastReviewedAt) return null;
+  try {
+    return Math.max(0, Math.min(1, Number(scheduler.get_retrievability(word.srs.fsrs, new Date(), false)) || 0));
+  } catch {
+    return null;
+  }
+}
+
 function showWordHistory(id) {
   const word = state.data.words.find((item) => item.id === id);
   if (!word) return;
@@ -425,13 +553,15 @@ function showWordHistory(id) {
     return result;
   }, {});
   const common = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const stability = Number(word.srs.fsrs?.stability) || 0;
+  const retrievability = currentRetrievability(word);
   $('#history-word').textContent = word.term;
   $('#history-definition').textContent = definitionText(word, true);
-  $('#history-summary').innerHTML = `<div><strong>${history.length}</strong><span>Lượt đã ôn</span></div><div><strong>${word.srs.lapses || 0}</strong><span>Lần quên</span></div><div><strong>${word.srs.interval || 0}</strong><span>Khoảng cách ngày</span></div>`;
+  $('#history-summary').innerHTML = `<div><strong>${history.length}</strong><span>Lượt đã ôn</span></div><div><strong>${word.srs.lapses || 0}</strong><span>Lần quên</span></div><div><strong>${stability < 10 ? stability.toFixed(1) : Math.round(stability)} ngày</strong><span>Độ ổn định ký ức</span></div><div><strong>${retrievability === null ? '—' : `${Math.round(retrievability * 100)}%`}</strong><span>Khả năng nhớ lúc này</span></div>`;
   $('#history-pattern').innerHTML = history.length
-    ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần).</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
+    ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần). FSRS đang ước tính độ khó ${Number(word.srs.fsrs?.difficulty || 0).toFixed(1)}/10.</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
     : '<p>Từ này chưa có lần ôn nào.</p>';
-  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : `<span>Lịch tiếp theo: ${item.interval || 0} ngày</span>`}</div></div>`).join('') : '';
+  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : ''}<span>Hẹn lại: ${intervalLabel(item.interval || 0, item.grade, item.dueAt, item.at)}</span>${Number.isFinite(item.stability) ? `<span>Ổn định ${item.stability.toFixed(1)} ngày</span>` : ''}</div></div>`).join('') : '';
   $('#history-modal').classList.remove('hidden');
 }
 
@@ -567,20 +697,47 @@ function startQuickReview() {
   startReview(candidates, 'Ôn nhanh 5 phút', { quick: true });
 }
 
-function intervalLabel(days, grade) {
-  if (grade === 'again') return '10 phút';
+function intervalLabel(days, grade, dueAt = null, from = new Date()) {
+  if (dueAt) {
+    const minutes = Math.max(1, Math.round((new Date(dueAt).getTime() - new Date(from).getTime()) / 60000));
+    if (minutes < 60) return `${minutes} phút`;
+    if (minutes < 24 * 60) return `${Math.max(1, Math.round(minutes / 60))} giờ`;
+  }
+  if (grade === 'again' && days < 1) return '10 phút';
   if (days < 1) return 'hôm nay';
   if (days === 1) return '1 ngày';
   if (days < 30) return `${Math.round(days)} ngày`;
-  return `${Math.round(days / 30)} tháng`;
+  if (days < 365) return `${Math.round(days / 30)} tháng`;
+  return `${Math.round(days / 365)} năm`;
 }
 
-function projectedInterval(word, grade) {
+function legacyProjectedSchedule(word, grade, now = new Date()) {
   const srs = word.srs;
-  if (grade === 'again') return 0;
-  if (grade === 'hard') return Math.max(1, Math.round((srs.interval || 1) * 1.2));
-  if (grade === 'good') return !srs.repetitions ? 1 : srs.repetitions === 1 ? 3 : Math.max(1, Math.round(srs.interval * srs.ease));
-  return !srs.repetitions ? 3 : Math.max(2, Math.round((srs.interval || 1) * srs.ease * 1.3));
+  let interval = 0;
+  if (grade === 'hard') interval = Math.max(1, Math.round((srs.interval || 1) * 1.2));
+  if (grade === 'good') interval = !srs.repetitions ? 1 : srs.repetitions === 1 ? 3 : Math.max(1, Math.round(srs.interval * srs.ease));
+  if (grade === 'easy') interval = !srs.repetitions ? 3 : Math.max(2, Math.round((srs.interval || 1) * srs.ease * 1.3));
+  const delay = grade === 'again' ? 10 * 60 * 1000 : interval * DAY;
+  return { interval, dueAt: new Date(now.getTime() + delay).toISOString(), card: null, retrievability: null };
+}
+
+function projectedSchedule(word, grade, now = new Date()) {
+  const scheduler = fsrsScheduler(state.data?.settings?.fsrsRetention);
+  const rating = GRADE_TO_RATING[grade];
+  if (!scheduler || !rating || !word.srs?.fsrs) return legacyProjectedSchedule(word, grade, now);
+  try {
+    const retrievability = Number(scheduler.get_retrievability(word.srs.fsrs, now, false)) || 0;
+    const result = scheduler.next(word.srs.fsrs, now, rating);
+    return {
+      interval: Number(result.card.scheduled_days) || 0,
+      dueAt: new Date(result.card.due).toISOString(),
+      card: serializeFsrsCard(result.card),
+      retrievability
+    };
+  } catch (error) {
+    console.warn('FSRS preview failed, using the compatibility scheduler:', error);
+    return legacyProjectedSchedule(word, grade, now);
+  }
 }
 
 function renderReviewCard() {
@@ -592,6 +749,7 @@ function renderReviewCard() {
   if (!review.challenge && !review.challengeLoading && !review.challengeError) loadReviewChallenge(review, word);
   const result = review.result;
   const challenge = review.challenge;
+  const nextReviewSchedule = result ? projectedSchedule(word, result.recommended_grade) : null;
   const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Câu ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
   if (!challenge) {
     const loadingContent = review.challengeError
@@ -607,7 +765,7 @@ function renderReviewCard() {
       <div class="feedback-reveal"><span>TỪ VỪA ĐƯỢC GIẤU</span><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
       <div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Đúng ý</em></b><b>${result.sentence_score}<small>/10</small><em>Tiếng Anh</em></b></div></div>
       <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}</small></article></div>
-      <div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · gặp lại sau ${intervalLabel(projectedInterval(word, result.recommended_grade), result.recommended_grade)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>
+      <div class="feedback-footer"><span>Đánh giá: <b>${gradeName(result.recommended_grade)}</b> · FSRS hẹn lại sau ${intervalLabel(nextReviewSchedule.interval, result.recommended_grade, nextReviewSchedule.dueAt)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>
       <p class="ai-disclaimer">AI có thể chấp nhận nhiều cách dịch đúng; đáp án gợi ý không phải đáp án duy nhất.</p>
     </section>` : '';
   $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><b>Không có gợi ý từ</b></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="gemini-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
@@ -694,22 +852,33 @@ function updateQuickTimer() {
 function applySrs(word, grade, metadata = {}) {
   const now = new Date();
   const srs = word.srs;
-  let interval = projectedInterval(word, grade);
-  if (grade === 'again') {
-    srs.repetitions = 0;
-    srs.lapses = (srs.lapses || 0) + 1;
-    srs.ease = Math.max(1.3, (srs.ease || 2.5) - .2);
-    srs.dueAt = new Date(now.getTime() + 10 * 60 * 1000).toISOString();
+  const next = projectedSchedule(word, grade, now);
+  if (next.card) {
+    srs.fsrs = next.card;
+    srs.algorithm = FSRS_ALGORITHM;
+    srs.repetitions = next.card.reps;
+    srs.lapses = next.card.lapses;
   } else {
-    srs.repetitions = (srs.repetitions || 0) + 1;
-    if (grade === 'hard') srs.ease = Math.max(1.3, (srs.ease || 2.5) - .15);
-    if (grade === 'easy') srs.ease = Math.min(3.2, (srs.ease || 2.5) + .15);
-    srs.interval = interval;
-    srs.dueAt = new Date(now.getTime() + interval * DAY).toISOString();
+    srs.fsrs = null;
+    srs.algorithm = 'compatibility';
+    srs.repetitions = grade === 'again' ? 0 : (srs.repetitions || 0) + 1;
+    if (grade === 'again') srs.lapses = (srs.lapses || 0) + 1;
   }
-  srs.interval = interval;
+  srs.interval = next.interval;
+  srs.dueAt = next.dueAt;
   srs.lastReviewedAt = now.toISOString();
-  srs.history.push({ at: now.toISOString(), grade, interval, ...metadata });
+  srs.history.push({
+    at: now.toISOString(),
+    grade,
+    interval: next.interval,
+    dueAt: next.dueAt,
+    scheduledMinutes: Math.max(1, Math.round((new Date(next.dueAt) - now) / 60000)),
+    stability: next.card?.stability ?? null,
+    difficulty: next.card?.difficulty ?? null,
+    retrievability: next.retrievability,
+    algorithm: next.card ? FSRS_ALGORITHM : 'compatibility',
+    ...metadata
+  });
 }
 
 async function gradeCurrent(grade, result = null) {
@@ -802,6 +971,9 @@ function renderStats() {
 function renderSettings() {
   $('#notification-toggle').checked = Boolean(state.data.settings.notifications);
   $('#notification-time').value = state.data.settings.notificationTime || '19:30';
+  const retention = Math.round(normalizedRetention(state.data.settings.fsrsRetention) * 100);
+  $('#retention-input').value = String(retention);
+  $('#retention-value').textContent = `${retention}%`;
   refreshGeminiStatus();
   refreshUpdateStatus();
   renderGlobal();
@@ -957,6 +1129,12 @@ function bindEvents() {
 
   $('#notification-toggle').addEventListener('change', async (event) => { state.data.settings.notifications = event.target.checked; await persist(); showToast(event.target.checked ? 'Đã bật nhắc ôn tập.' : 'Đã tắt nhắc ôn tập.'); });
   $('#notification-time').addEventListener('change', async (event) => { state.data.settings.notificationTime = event.target.value; state.data.settings.lastNotificationDate = null; await persist(); showToast('Đã đổi giờ nhắc học.'); });
+  $('#retention-input').addEventListener('input', (event) => { $('#retention-value').textContent = `${event.target.value}%`; });
+  $('#retention-input').addEventListener('change', async (event) => {
+    state.data.settings.fsrsRetention = normalizedRetention(Number(event.target.value) / 100);
+    await persist();
+    showToast(`FSRS sẽ hướng tới mức nhớ ${event.target.value}% từ lần ôn tiếp theo.`);
+  });
   $('#save-gemini-key').addEventListener('click', async () => {
     const input = $('#gemini-key-input');
     const button = $('#save-gemini-key');
@@ -1024,6 +1202,7 @@ async function init() {
     state.data = normalizeData();
     showToast('Không đọc được dữ liệu cũ. Milim đã mở một trang mới.', '!', true);
   }
+  await persist();
   bindEvents();
   api.onUpdateStatus?.(renderUpdateStatus);
   renderPosOptions();

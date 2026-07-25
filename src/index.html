@@ -137,10 +137,11 @@
           <div class="settings-grid">
             <article class="settings-card"><div><span class="settings-icon">♡</span><h2>Nhắc mình ôn tập</h2><p>Milim sẽ nhắc khi còn từ đến hạn ôn.</p></div><label class="switch"><input id="notification-toggle" type="checkbox" /><span></span></label><label class="time-field">Thời gian nhắc<input id="notification-time" type="time" /></label></article>
             <article class="settings-card gemini-card"><div><span class="settings-icon">✦</span><h2>Gemini chấm bài</h2><p>API key được mã hóa trên máy và chỉ gửi trực tiếp đến Google Gemini.</p></div><div class="api-key-row"><input id="gemini-key-input" type="password" autocomplete="off" placeholder="Dán Gemini API key..." /><button class="primary-btn" id="save-gemini-key">Lưu & kiểm tra</button></div><p class="api-status" id="gemini-status">Đang kiểm tra cấu hình...</p></article>
+            <article class="settings-card fsrs-card"><div><span class="settings-icon">⌁</span><h2>Lịch ôn thông minh</h2><p>FSRS-6 dự đoán khả năng nhớ của từng từ và tự chọn ngày ôn phù hợp.</p></div><label class="retention-field"><span><b>Mục tiêu ghi nhớ</b><strong id="retention-value">90%</strong></span><input id="retention-input" type="range" min="80" max="95" step="1" value="90" /><small>Cao hơn sẽ nhớ chắc hơn, nhưng cần ôn thường xuyên hơn.</small></label></article>
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.0.2</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.1.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
@@ -148,6 +149,7 @@
     <div class="toast" id="toast" role="status"><span id="toast-icon">✓</span><p id="toast-message"></p></div>
     <div class="modal-backdrop hidden" id="confirm-modal"><div class="confirm-box"><div class="confirm-icon">?</div><h2 id="confirm-title">Bạn chắc chứ?</h2><p id="confirm-message"></p><div><button class="soft-btn" id="confirm-cancel">Để sau</button><button class="danger-btn" id="confirm-accept">Đồng ý</button></div></div></div>
     <div class="modal-backdrop hidden" id="history-modal"><div class="history-box"><div class="history-head"><div><p class="eyebrow">LỊCH SỬ ÔN TẬP</p><h2 id="history-word"></h2><p id="history-definition"></p></div><button id="history-close" aria-label="Đóng">×</button></div><div class="history-summary" id="history-summary"></div><div class="history-pattern" id="history-pattern"></div><div class="history-list" id="history-list"></div></div></div>
+    <script src="../node_modules/ts-fsrs/dist/index.umd.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
