@@ -988,19 +988,19 @@ function renderFastReviewCard(review, word, progressHeader) {
   const definitions = definitionText(word, true);
   const gradeChoices = ['again', 'hard', 'good', 'easy'].map((grade, index) => {
     const schedule = projectedSchedule(word, grade);
-    return `<button class="manual-grade ${grade}" data-fast-grade="${grade}"><kbd>${index + 1}</kbd><strong>${gradeName(grade)}</strong><span>${intervalLabel(schedule.interval, grade, schedule.dueAt)}</span></button>`;
+    return `<button class="manual-grade ${grade}" data-fast-grade="${grade}"><kbd>${index + 1}</kbd><span class="fast-grade-copy"><strong>${gradeName(grade)}</strong><small>Hẹn lại ${intervalLabel(schedule.interval, grade, schedule.dueAt)}</small></span></button>`;
   }).join('');
   const answer = review.revealed ? `
     <div class="fast-answer">
-      <span>ĐÁP ÁN</span>
-      <div><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
-      <p>Bạn nhớ từ này ở mức nào?</p>
+      <div class="fast-answer-heading">
+        <div><span>ĐÁP ÁN</span><div><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div></div>
+        <p>Chọn theo cảm giác nhớ đầu tiên của bạn</p>
+      </div>
       <div class="fast-grade-grid">${gradeChoices}</div>
-      ${!review.quick ? '<button class="deep-practice-link" id="practice-deep">Luyện từ này bằng một câu với AI →</button>' : ''}
+      <div class="fast-answer-footer"><span>Phím 1–4 để chuyển ngay sang từ tiếp theo</span>${!review.quick ? '<button class="deep-practice-link" id="practice-deep">Chưa chắc? Luyện sâu với AI →</button>' : ''}</div>
     </div>` : `
-    <button class="fast-reveal-btn" id="reveal-fast-answer"><span>Hiện đáp án</span><small>Space hoặc Enter</small></button>
-    <p class="fast-self-check">Hãy nói từ tiếng Anh trong đầu trước khi lật đáp án.</p>`;
-  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>Ôn nhanh · không gọi AI</b>${!review.quick ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p><blockquote>${escapeHtml(definitions)}</blockquote>${answer}</div></div>`;
+    <div class="fast-reveal-zone"><button class="fast-reveal-btn" id="reveal-fast-answer"><span>Hiện đáp án</span><small>Space hoặc Enter</small></button><p>Hãy gọi từ tiếng Anh trong đầu trước khi lật.</p></div>`;
+  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>${review.quick ? 'Phiên 5 phút' : 'Ôn nhanh'} · không gọi AI</b>${!review.quick && !review.revealed ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><div class="fast-cue-panel"><div class="fast-cue-mark">✦</div><div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p><blockquote>${escapeHtml(definitions)}</blockquote></div></div>${answer}</div></div>`;
   updateQuickTimer();
 }
 

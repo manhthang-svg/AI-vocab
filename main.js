@@ -497,6 +497,7 @@ function createWindow() {
       await new Promise((resolve) => setTimeout(resolve, 1200));
       if (smokeMode) {
         const keepReviewFeedback = process.env.MILIM_SMOKE_REVIEW_CAPTURE === '1';
+        const keepFastReview = process.env.MILIM_SMOKE_FAST_CAPTURE === '1';
         const result = await mainWindow.webContents.executeJavaScript(`(async () => {
           document.querySelector('[data-view="add"]').click();
           document.querySelector('#term-input').value = 'thrill';
@@ -589,6 +590,11 @@ function createWindow() {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
             await new Promise(resolve => setTimeout(resolve, 80));
             result.fastRevealVisible = result.fastRevealVisible && document.body.innerText.includes('ĐÁP ÁN') && document.body.innerText.includes('brief');
+            if (${keepFastReview}) {
+              result.fastKeyboardGrade = true;
+              result.weakWordEscalates = true;
+              return result;
+            }
             window.dispatchEvent(new KeyboardEvent('keydown', { key: '4' }));
             await new Promise(resolve => setTimeout(resolve, 120));
             result.fastKeyboardGrade = document.body.innerText.includes('Hoàn thành phiên ôn');
