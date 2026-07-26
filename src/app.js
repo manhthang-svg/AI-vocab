@@ -26,6 +26,28 @@ const api = window.milim || {
   async generateRecallChallenge() {
     return { vietnamese_sentence: 'Tin tức bất ngờ ấy khiến mọi người vô cùng phấn khích.', suggested_answer: 'The unexpected news thrilled everyone.' };
   },
+  async aiStatus() {
+    return {
+      preference: 'auto',
+      activeProvider: 'manual',
+      resourceMode: 'balanced',
+      idleMinutes: 5,
+      local: { state: 'not-installed', percent: 0, model: { name: 'Qwen3 4B · Q4_K_M', size: 2497280256 } },
+      gemini: { configured: false, model: 'gemini-2.5-flash' }
+    };
+  },
+  async downloadLocalAI() { return this.aiStatus(); },
+  async pauseLocalAIDownload() { return this.aiStatus(); },
+  async deleteLocalAI() { return this.aiStatus(); },
+  async stopLocalAI() { return this.aiStatus(); },
+  async testLocalAI() { return { ok: true, elapsedMs: 1, sample: 'Hãy thử viết một câu tiếng Anh.' }; },
+  async checkAIAnswer(payload) {
+    return { meaning_score: null, sentence_score: null, meaning_feedback: 'Hãy tự đánh giá mức độ nhớ.', sentence_feedback: '', corrected_sentence: payload.sentence, overall_feedback: 'Chế độ tự đánh giá.', recommended_grade: null, provider: 'manual', manual: true };
+  },
+  async generateAIChallenge(payload) {
+    return { vietnamese_sentence: `Hãy viết một câu tiếng Anh diễn đạt đúng ý: “${payload.savedDefinition}”`, suggested_answer: '', provider: 'manual', manual: true };
+  },
+  onAIStatus() { return () => {}; },
   async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
   async checkForUpdates() { return this.updateStatus(); },
   async installUpdate() { return false; },
@@ -43,6 +65,7 @@ const state = {
   review: null,
   geminiConfigured: false,
   geminiModel: 'gemini-2.5-flash',
+  aiStatus: null,
   updateStatus: null,
   confirmAction: null,
   toastTimer: null
@@ -54,6 +77,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const FSRS_RETENTION_DEFAULT = 0.9;
 const FSRS_ALGORITHM = 'FSRS-6';
 const GRADE_TO_RATING = { again: 1, hard: 2, good: 3, easy: 4 };
+const prefetchingChallenges = new Set();
 
 function normalizedRetention(value) {
   const retention = Number(value);
@@ -221,6 +245,16 @@ function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
     partOfSpeech: partsOfSpeech[0] || '',
     createdAt,
     createdDate: word.createdDate || localDate(createdAt),
+    recallCache: Array.isArray(word.recallCache) ? word.recallCache
+      .filter((item) => item && item.vietnamese_sentence)
+      .slice(-5)
+      .map((item) => ({
+        vietnamese_sentence: String(item.vietnamese_sentence).slice(0, 1200),
+        suggested_answer: String(item.suggested_answer || '').slice(0, 1200),
+        provider: String(item.provider || 'unknown'),
+        createdAt: item.createdAt || new Date().toISOString(),
+        uses: Math.max(0, Number(item.uses) || 0)
+      })) : [],
     srs
   };
 }
@@ -232,11 +266,19 @@ function normalizeData(data) {
     fsrsRetention: FSRS_RETENTION_DEFAULT,
     theme: 'light',
     lastNotificationDate: null,
+    aiProvider: 'auto',
+    aiResourceMode: 'balanced',
+    aiIdleMinutes: 5,
+    aiUsage: { local: 0, gemini: 0, manual: 0 },
     ...(data?.settings || {})
   };
   settings.fsrsRetention = normalizedRetention(settings.fsrsRetention);
+  settings.aiProvider = ['auto', 'local', 'gemini'].includes(settings.aiProvider) ? settings.aiProvider : 'auto';
+  settings.aiResourceMode = ['saver', 'balanced', 'fast'].includes(settings.aiResourceMode) ? settings.aiResourceMode : 'balanced';
+  settings.aiIdleMinutes = Math.max(1, Math.min(30, Number(settings.aiIdleMinutes) || 5));
+  settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
   return {
-    version: 3,
+    version: 4,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
     speakingErrors: Array.isArray(data?.speakingErrors) ? data.speakingErrors.map((item) => ({
       id: item.id || uid(),
@@ -245,6 +287,7 @@ function normalizeData(data) {
       createdAt: item.createdAt || new Date().toISOString(),
       createdDate: item.createdDate || localDate(item.createdAt || new Date())
     })) : [],
+    reviewSession: data?.reviewSession && typeof data.reviewSession === 'object' ? data.reviewSession : null,
     settings
   };
 }
@@ -592,7 +635,7 @@ function showWordHistory(id) {
   $('#history-pattern').innerHTML = history.length
     ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần). FSRS đang ước tính độ khó ${Number(word.srs.fsrs?.difficulty || 0).toFixed(1)}/10.</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
     : '<p>Từ này chưa có lần ôn nào.</p>';
-  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : ''}<span>Hẹn lại: ${intervalLabel(item.interval || 0, item.grade, item.dueAt, item.at)}</span>${Number.isFinite(item.stability) ? `<span>Ổn định ${item.stability.toFixed(1)} ngày</span>` : ''}</div></div>`).join('') : '';
+  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : ''}${item.aiProvider ? `<span>${escapeHtml(aiProviderName(item.aiProvider))}</span>` : ''}<span>Hẹn lại: ${intervalLabel(item.interval || 0, item.grade, item.dueAt, item.at)}</span>${Number.isFinite(item.stability) ? `<span>Ổn định ${item.stability.toFixed(1)} ngày</span>` : ''}</div></div>`).join('') : '';
   $('#history-modal').classList.remove('hidden');
 }
 
@@ -686,19 +729,125 @@ function deleteSpeakingError(id) {
   }, 'Xóa ghi chép');
 }
 
+function aiProviderName(provider) {
+  if (provider === 'local') return 'AI cục bộ';
+  if (provider === 'gemini') return 'Gemini';
+  return 'Tự đánh giá';
+}
+
+function serializeReviewSession(review) {
+  if (!review) return null;
+  return {
+    queue: [...review.queue],
+    total: review.total,
+    answered: review.answered,
+    correct: review.correct,
+    requeued: [...review.requeued],
+    title: review.title,
+    quick: review.quick,
+    endsAt: review.endsAt,
+    checking: false,
+    result: review.result,
+    draft: review.draft,
+    challenge: review.challenge,
+    challengeLoading: false,
+    challengeError: ''
+  };
+}
+
+async function persistReviewSession() {
+  state.data.reviewSession = serializeReviewSession(state.review);
+  await persist();
+}
+
+function restoreReviewSession() {
+  const saved = state.data.reviewSession;
+  if (!saved || !Array.isArray(saved.queue)) return false;
+  const knownIds = new Set(state.data.words.map((word) => word.id));
+  const queue = saved.queue.filter((id) => knownIds.has(id));
+  if (!queue.length) {
+    state.data.reviewSession = null;
+    return false;
+  }
+  state.review = {
+    queue,
+    total: Math.max(queue.length, Number(saved.total) || queue.length),
+    answered: Math.max(0, Number(saved.answered) || 0),
+    correct: Math.max(0, Number(saved.correct) || 0),
+    requeued: new Set(Array.isArray(saved.requeued) ? saved.requeued : []),
+    title: String(saved.title || 'Phiên ôn đang dở'),
+    quick: Boolean(saved.quick),
+    endsAt: saved.quick && Number(saved.endsAt) > Date.now() ? Number(saved.endsAt) : null,
+    checking: false,
+    result: saved.result || null,
+    draft: saved.draft || { sentence: '' },
+    challenge: saved.challenge || null,
+    challengeLoading: false,
+    challengeError: ''
+  };
+  return true;
+}
+
+function cachedChallenge(word) {
+  const available = (word.recallCache || []).filter((item) => item.vietnamese_sentence);
+  if (!available.length) return null;
+  const selected = [...available].sort((a, b) => (a.uses || 0) - (b.uses || 0))[0];
+  selected.uses = (selected.uses || 0) + 1;
+  return { ...selected, provider: selected.provider || 'cache', fromCache: true, manual: false };
+}
+
+function cacheChallenge(word, challenge) {
+  if (!challenge || challenge.manual || !challenge.vietnamese_sentence) return;
+  word.recallCache ||= [];
+  const duplicate = word.recallCache.some((item) => item.vietnamese_sentence === challenge.vietnamese_sentence);
+  if (!duplicate) {
+    word.recallCache.push({
+      vietnamese_sentence: challenge.vietnamese_sentence,
+      suggested_answer: challenge.suggested_answer,
+      provider: challenge.provider,
+      createdAt: new Date().toISOString(),
+      uses: 1
+    });
+    word.recallCache = word.recallCache.slice(-5);
+  }
+}
+
+function prefetchChallenge(word) {
+  if (!word || (word.recallCache || []).length >= 3 || prefetchingChallenges.has(word.id)) return;
+  prefetchingChallenges.add(word.id);
+  api.generateAIChallenge({
+    word: word.term,
+    partOfSpeech: wordParts(word).map(posName).join(', '),
+    savedDefinition: definitionText(word, true)
+  }).then(async (challenge) => {
+    cacheChallenge(word, challenge);
+    await persist();
+  }).catch(() => {
+    /* Prefetch is optional; the active review always keeps its own fallback. */
+  }).finally(() => prefetchingChallenges.delete(word.id));
+}
+
+function reviewAIStatusMarkup() {
+  const status = state.aiStatus;
+  const provider = status?.activeProvider || 'manual';
+  if (provider === 'local') return `<div class="gemini-ready local-ready">● AI cục bộ sẵn sàng · ${escapeHtml(status.local?.model?.name || 'Qwen3 4B')}</div>`;
+  if (provider === 'gemini') return `<div class="gemini-ready">✦ Gemini ${escapeHtml(status.gemini?.model || state.geminiModel)} đã sẵn sàng</div>`;
+  return '<div class="gemini-notice"><strong>Đang dùng chế độ tự đánh giá</strong><span>Bạn vẫn có thể ôn ngay; tải AI cục bộ để được chấm offline.</span><button class="text-btn" data-go="settings">Thiết lập →</button></div>';
+}
+
 function renderReviewWelcome() {
   const due = dueWords();
   const overdue = overdueWords();
   const latestDate = Object.keys(groupByDate()).sort().reverse()[0];
+  const resumable = Boolean(state.data.reviewSession?.queue?.length);
   $('#review-title').textContent = 'Ôn tập hôm nay';
   $('#review-exit').classList.add('hidden');
   const overdueList = overdue.slice(0, 5).map((word) => `<span>${escapeHtml(word.term)}</span>`).join('');
-  $('#review-stage').innerHTML = `<div class="review-dashboard"><div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">VIỆT → ANH</span><h2>${due.length ? `${due.length} câu đang chờ bạn dịch` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Gemini tạo câu tiếng Việt, giấu hoàn toàn từ mục tiêu và chấm bản dịch tiếng Anh của bạn.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên nhanh hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p>${!state.geminiConfigured ? '<div class="gemini-notice"><strong>Chưa kết nối Gemini</strong><span>Thêm API key trong Cài đặt để tạo và chấm câu hỏi.</span><button class="text-btn" data-go="settings">Thiết lập →</button></div>' : `<div class="gemini-ready">✦ Gemini ${escapeHtml(state.geminiModel)} đã sẵn sàng</div>`}<div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Bắt đầu active recall</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Ôn nhanh 5 phút</button>' : ''}</div></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Các câu sẽ được xáo trộn; từ mục tiêu không xuất hiện trước khi bạn trả lời.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
+  $('#review-stage').innerHTML = `<div class="review-dashboard">${resumable ? `<section class="resume-review-card"><div><span>PHIÊN ĐANG DỞ</span><strong>${escapeHtml(state.data.reviewSession.title || 'Ôn tập')}</strong><p>Còn ${state.data.reviewSession.queue.length} câu · tiến độ đã được lưu tự động.</p></div><button class="primary-btn" id="resume-review">Tiếp tục phiên →</button></section>` : ''}<div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">VIỆT → ANH</span><h2>${due.length ? `${due.length} câu đang chờ bạn dịch` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Milim tạo câu tiếng Việt, giấu hoàn toàn từ mục tiêu và chấm bản dịch tiếng Anh của bạn.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên nhanh hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p>${reviewAIStatusMarkup()}<div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Bắt đầu active recall</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Ôn nhanh 5 phút</button>' : ''}</div></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Các câu sẽ được xáo trộn; từ mục tiêu không xuất hiện trước khi bạn trả lời.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
 }
 
-function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
+async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
   if (!words.length) { showToast('Bộ này chưa có từ để ôn.', '!', true); return; }
-  if (!state.geminiConfigured) { showToast('Hãy thiết lập Gemini API key trước khi ôn.', '!', true); navigate('settings'); return; }
   const shuffled = shuffleWords(words);
   const selected = options.quick ? shuffled.slice(0, 20) : shuffled;
   state.review = {
@@ -717,6 +866,7 @@ function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
     challengeLoading: false,
     challengeError: ''
   };
+  await persistReviewSession();
   navigate('review');
   $('#review-title').textContent = title;
   $('#review-exit').classList.remove('hidden');
@@ -775,41 +925,56 @@ function renderReviewCard() {
   const review = state.review;
   if (!review || !review.queue.length) { renderReviewComplete(); return; }
   const word = state.data.words.find((item) => item.id === review.queue[0]);
-  if (!word) { review.queue.shift(); renderReviewCard(); return; }
+  if (!word) { review.queue.shift(); persistReviewSession(); renderReviewCard(); return; }
   const progress = Math.min(100, (review.answered / Math.max(1, review.total)) * 100);
   if (!review.challenge && !review.challengeLoading && !review.challengeError) loadReviewChallenge(review, word);
   const result = review.result;
   const challenge = review.challenge;
-  const nextReviewSchedule = result ? projectedSchedule(word, result.recommended_grade) : null;
+  const nextReviewSchedule = result?.recommended_grade ? projectedSchedule(word, result.recommended_grade) : null;
   const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Câu ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
   if (!challenge) {
     const loadingContent = review.challengeError
       ? `<div class="challenge-state error"><span>!</span><h2>Chưa tạo được câu hỏi</h2><p>${escapeHtml(review.challengeError)}</p><button class="soft-btn" id="retry-challenge">Thử lại</button></div>`
-      : '<div class="challenge-state"><i class="spinner"></i><h2>Đang chuẩn bị một câu cho bạn…</h2><p>Từ mục tiêu sẽ được giấu hoàn toàn.</p></div>';
+      : '<div class="challenge-state"><i class="spinner"></i><h2>Đang chuẩn bị một câu cho bạn…</h2><p>Lần đầu nạp model cục bộ có thể mất một chút thời gian.</p></div>';
     $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card">${loadingContent}</div></div>`;
     updateQuickTimer();
     return;
   }
   const savedDefinitions = definitionText(word, true);
+  const provider = result?.provider || challenge.provider || 'manual';
+  const providerLabel = aiProviderName(provider);
+  const gradeChoices = result?.manual ? ['again', 'hard', 'good', 'easy'].map((grade) => {
+    const schedule = projectedSchedule(word, grade);
+    return `<button class="manual-grade ${grade}" data-manual-grade="${grade}"><strong>${gradeName(grade)}</strong><span>${intervalLabel(schedule.interval, grade, schedule.dueAt)}</span></button>`;
+  }).join('') : '';
   const feedback = result ? `
     <section class="gemini-feedback recall-feedback">
       <div class="feedback-reveal"><span>TỪ VỪA ĐƯỢC GIẤU</span><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
-      <div class="feedback-title"><div><span>✦ GEMINI NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${result.meaning_score}<small>/10</small><em>Đúng ý</em></b><b>${result.sentence_score}<small>/10</small><em>Tiếng Anh</em></b></div></div>
-      <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}</small></article></div>
-      <div class="feedback-footer"><span>Đánh giá từ vựng: <b>${gradeName(result.recommended_grade)}</b> · FSRS hẹn lại sau ${intervalLabel(nextReviewSchedule.interval, result.recommended_grade, nextReviewSchedule.dueAt)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>
+      <div class="feedback-title"><div><span>✦ ${escapeHtml(providerLabel.toUpperCase())} NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${Number.isFinite(result.meaning_score) ? `${result.meaning_score}<small>/10</small>` : '—'}<em>Đúng ý</em></b><b>${Number.isFinite(result.sentence_score) ? `${result.sentence_score}<small>/10</small>` : '—'}<em>Tiếng Anh</em></b></div></div>
+      <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>${result.corrected_sentence || challenge.suggested_answer ? `Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}` : 'Hãy đối chiếu lại câu bạn vừa viết.'}</small></article></div>
+      ${result.manual ? `<div class="manual-grade-panel"><span>TỰ ĐÁNH GIÁ MỨC ĐỘ NHỚ</span><div>${gradeChoices}</div></div>` : `<div class="feedback-footer"><span>Đánh giá từ vựng: <b>${gradeName(result.recommended_grade)}</b> · FSRS hẹn lại sau ${intervalLabel(nextReviewSchedule.interval, result.recommended_grade, nextReviewSchedule.dueAt)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>`}
       <p class="ai-disclaimer">Lịch ôn chỉ dựa trên điểm Đúng ý. Điểm Tiếng Anh được lưu để góp ý và hoàn toàn không ảnh hưởng Again / Hard / Good / Easy.</p>
     </section>` : '';
-  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><b>Không có gợi ý từ</b></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="gemini-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>Gemini sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
+  const sourceNote = challenge.fromCache ? 'Câu hỏi đã chuẩn bị sẵn' : challenge.manual ? 'Chế độ tự đánh giá' : `Tạo bởi ${aiProviderName(challenge.provider)}`;
+  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><b>${escapeHtml(sourceNote)} · không có gợi ý từ</b></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="ai-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>${challenge.manual ? 'Milim sẽ hiện từ mục tiêu để bạn tự đánh giá.' : 'AI sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.'}</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
   updateQuickTimer();
 }
 
 async function loadReviewChallenge(review, word) {
   if (review.challengeLoading) return;
+  const cached = cachedChallenge(word);
+  if (cached) {
+    review.challenge = cached;
+    await persistReviewSession();
+    prefetchChallenge(word);
+    renderReviewCard();
+    return;
+  }
   review.challengeLoading = true;
   review.challengeError = '';
   renderReviewCard();
   try {
-    const challenge = await api.generateRecallChallenge({
+    const challenge = await api.generateAIChallenge({
       word: word.term,
       partOfSpeech: wordParts(word).map(posName).join(', '),
       savedDefinition: definitionText(word, true)
@@ -817,6 +982,9 @@ async function loadReviewChallenge(review, word) {
     if (state.review !== review || review.queue[0] !== word.id) return;
     review.challenge = challenge;
     review.challengeLoading = false;
+    cacheChallenge(word, challenge);
+    await persistReviewSession();
+    prefetchChallenge(word);
     renderReviewCard();
   } catch (error) {
     if (state.review !== review) return;
@@ -826,7 +994,7 @@ async function loadReviewChallenge(review, word) {
   }
 }
 
-async function submitGeminiAnswer(event) {
+async function submitAIAnswer(event) {
   event.preventDefault();
   const review = state.review;
   if (!review || review.checking || review.result) return;
@@ -842,7 +1010,7 @@ async function submitGeminiAnswer(event) {
   review.checking = true;
   renderReviewCard();
   try {
-    const result = await api.checkGeminiAnswer({
+    const result = await api.checkAIAnswer({
       mode: 'recall',
       word: word.term,
       partOfSpeech: wordParts(word).map(posName).join(', '),
@@ -854,13 +1022,14 @@ async function submitGeminiAnswer(event) {
     if (state.review !== review) return;
     review.result = result;
     review.checking = false;
+    await persistReviewSession();
     renderReviewCard();
   } catch (error) {
     if (state.review !== review) return;
     review.checking = false;
     renderReviewCard();
     const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-    showToast(message || 'Chưa thể kết nối Gemini.', '!', true);
+    showToast(message || 'Chưa thể chấm bằng AI. Bạn có thể chuyển sang tự đánh giá.', '!', true);
   }
 }
 
@@ -876,6 +1045,7 @@ function updateQuickTimer() {
   }
   if (remaining <= 0 && review.queue.length) {
     review.queue = [];
+    persistReviewSession();
     renderReviewComplete();
   }
 }
@@ -918,7 +1088,15 @@ async function gradeCurrent(grade, result = null) {
   const id = review.queue.shift();
   const word = state.data.words.find((item) => item.id === id);
   if (!word) return renderReviewCard();
-  applySrs(word, grade, result ? { meaningScore: result.meaning_score, sentenceScore: result.sentence_score } : {});
+  applySrs(word, grade, result ? {
+    meaningScore: Number.isFinite(result.meaning_score) ? result.meaning_score : null,
+    sentenceScore: Number.isFinite(result.sentence_score) ? result.sentence_score : null,
+    aiProvider: result.provider || 'manual'
+  } : {});
+  if (result) {
+    const provider = ['local', 'gemini', 'manual'].includes(result.provider) ? result.provider : 'manual';
+    state.data.settings.aiUsage[provider] = (Number(state.data.settings.aiUsage[provider]) || 0) + 1;
+  }
   review.answered += 1;
   if (grade === 'good' || grade === 'easy') review.correct += 1;
   if (grade === 'again' && !review.requeued.has(id)) {
@@ -931,6 +1109,7 @@ async function gradeCurrent(grade, result = null) {
   review.challenge = null;
   review.challengeLoading = false;
   review.challengeError = '';
+  state.data.reviewSession = serializeReviewSession(review);
   await persist();
   renderGlobal();
   renderReviewCard();
@@ -943,8 +1122,11 @@ function renderReviewComplete() {
   $('#review-exit').classList.add('hidden');
 }
 
-function endReview() {
+async function endReview() {
   state.review = null;
+  state.data.reviewSession = null;
+  await persist();
+  api.stopLocalAI?.().catch(() => {});
   navigate('home');
 }
 
@@ -958,6 +1140,9 @@ function renderStats() {
     ['♡', total, 'Tổng từ đã lưu'], ['✦', mastered, 'Từ đã ghi nhớ'], ['↻', reviewCount, 'Lượt ôn tập']
   ].map(([icon, value, label]) => `<article class="stat-card"><i>${icon}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
   $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card tree-stat-card"><div class="stat-tree">${treeMarkup(currentStreak, true)}</div><div><strong>${currentStreak} ngày</strong><span>${treeStage(currentStreak).label} · dài nhất ${bestStreak} ngày</span></div></article>`;
+  const usage = state.data.settings.aiUsage;
+  const aiTotal = (usage.local || 0) + (usage.gemini || 0) + (usage.manual || 0);
+  $('#ai-stats-strip').innerHTML = `<div><span>AI & TỰ ĐÁNH GIÁ</span><strong>${aiTotal} lượt chấm</strong></div><p><b>${usage.local || 0}</b> cục bộ</p><p><b>${usage.gemini || 0}</b> Gemini</p><p><b>${usage.manual || 0}</b> tự đánh giá</p>`;
 
   const days = Array.from({ length: 7 }, (_, index) => new Date(Date.now() - (6 - index) * DAY));
   const counts = days.map((date) => {
@@ -1007,9 +1192,69 @@ function renderSettings() {
   const retention = Math.round(normalizedRetention(state.data.settings.fsrsRetention) * 100);
   $('#retention-input').value = String(retention);
   $('#retention-value').textContent = `${retention}%`;
-  refreshGeminiStatus();
+  $('#ai-provider').value = state.data.settings.aiProvider;
+  $('#ai-resource-mode').value = state.data.settings.aiResourceMode;
+  $('#ai-idle-minutes').value = String(state.data.settings.aiIdleMinutes);
+  const usage = state.data.settings.aiUsage;
+  $('#ai-usage').innerHTML = `<span><b>${usage.local || 0}</b> lượt chấm cục bộ</span><span><b>${usage.gemini || 0}</b> lượt Gemini</span><span><b>${usage.manual || 0}</b> lượt tự đánh giá</span>`;
+  refreshAIStatus();
   refreshUpdateStatus();
   renderGlobal();
+}
+
+function formatBytes(bytes) {
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
+  if (value >= 1024 ** 2) return `${Math.round(value / 1024 ** 2)} MB`;
+  return `${Math.round(value / 1024)} KB`;
+}
+
+function renderLocalAIStatus(local) {
+  if (!local) return;
+  const statusNode = $('#local-ai-status');
+  const modelName = $('#local-ai-model-name');
+  const sizeNode = $('#local-ai-size');
+  const progress = $('#local-ai-progress');
+  const progressBar = $('#local-ai-progress-bar');
+  const action = $('#local-ai-action');
+  const test = $('#local-ai-test');
+  const stop = $('#local-ai-stop');
+  const remove = $('#local-ai-delete');
+  if (!statusNode || !action) return;
+  const busy = ['downloading', 'verifying', 'extracting'].includes(local.state);
+  const installed = ['ready', 'loading', 'running', 'generating'].includes(local.state);
+  modelName.textContent = local.model?.name || 'Qwen3 4B · Q4_K_M';
+  sizeNode.textContent = formatBytes(local.model?.size || 2497280256);
+  statusNode.textContent = local.message || 'Đang đọc trạng thái AI cục bộ…';
+  statusNode.classList.toggle('update-error', local.state === 'error');
+  progress.classList.toggle('hidden', !(busy || local.state === 'paused'));
+  progressBar.style.width = `${Math.max(0, Math.min(100, Number(local.percent) || 0))}%`;
+  action.classList.toggle('hidden', installed || ['verifying', 'extracting'].includes(local.state));
+  action.disabled = false;
+  action.textContent = local.state === 'downloading' ? 'Tạm dừng tải'
+    : local.state === 'paused' ? 'Tiếp tục tải'
+      : local.state === 'error' ? 'Thử tải lại'
+        : 'Tải AI cục bộ · 2.33 GB';
+  test.classList.toggle('hidden', !installed);
+  test.disabled = ['loading', 'generating'].includes(local.state);
+  stop.classList.toggle('hidden', !['loading', 'running', 'generating'].includes(local.state));
+  remove.classList.toggle('hidden', !installed && local.state !== 'paused' && local.state !== 'error');
+}
+
+async function refreshAIStatus() {
+  try {
+    state.aiStatus = await api.aiStatus();
+    state.geminiConfigured = Boolean(state.aiStatus.gemini?.configured);
+    state.geminiModel = state.aiStatus.gemini?.model || 'gemini-2.5-flash';
+    renderLocalAIStatus(state.aiStatus.local);
+    const statusNode = $('#gemini-status');
+    if (statusNode) {
+      statusNode.textContent = state.geminiConfigured ? `Đã kết nối · ${state.geminiModel}` : 'Chưa có API key · không ảnh hưởng AI cục bộ.';
+      statusNode.classList.toggle('connected', state.geminiConfigured);
+    }
+  } catch {
+    renderLocalAIStatus({ state: 'error', message: 'Không thể đọc trạng thái AI cục bộ.', model: { name: 'Qwen3 4B · Q4_K_M', size: 2497280256 } });
+  }
 }
 
 function renderUpdateStatus(status) {
@@ -1126,7 +1371,15 @@ function bindEvents() {
     if (event.target.closest('#start-due-review')) startReview(dueWords());
     if (event.target.closest('#start-overdue-review')) startReview(overdueWords(), 'Từ quá hạn');
     if (event.target.closest('#start-quick-review')) startQuickReview();
+    if (event.target.closest('#resume-review') && restoreReviewSession()) {
+      navigate('review');
+      $('#review-title').textContent = state.review.title;
+      $('#review-exit').classList.remove('hidden');
+      renderReviewCard();
+    }
     if (event.target.closest('#continue-review') && state.review?.result) gradeCurrent(state.review.result.recommended_grade, state.review.result);
+    const manualGrade = event.target.closest('[data-manual-grade]');
+    if (manualGrade && state.review?.result?.manual) gradeCurrent(manualGrade.dataset.manualGrade, state.review.result);
     if (event.target.closest('#retry-challenge') && state.review) {
       state.review.challengeError = '';
       renderReviewCard();
@@ -1135,7 +1388,7 @@ function bindEvents() {
   });
 
   document.addEventListener('submit', (event) => {
-    if (event.target.id === 'gemini-answer-form') submitGeminiAnswer(event);
+    if (event.target.id === 'ai-answer-form') submitAIAnswer(event);
   });
 
   $('#hero-review-btn').addEventListener('click', () => navigate('review'));
@@ -1168,6 +1421,77 @@ function bindEvents() {
     await persist();
     showToast(`FSRS sẽ hướng tới mức nhớ ${event.target.value}% từ lần ôn tiếp theo.`);
   });
+  $('#ai-provider').addEventListener('change', async (event) => {
+    state.data.settings.aiProvider = event.target.value;
+    await persist();
+    await refreshAIStatus();
+    showToast(`Đã chọn ${event.target.options[event.target.selectedIndex].text}.`);
+  });
+  $('#ai-resource-mode').addEventListener('change', async (event) => {
+    state.data.settings.aiResourceMode = event.target.value;
+    await persist();
+    showToast('Chế độ tài nguyên sẽ áp dụng từ lần nạp model tiếp theo.');
+  });
+  $('#ai-idle-minutes').addEventListener('change', async (event) => {
+    state.data.settings.aiIdleMinutes = Number(event.target.value);
+    await persist();
+    showToast(`AI sẽ tự giải phóng RAM sau ${event.target.value} phút không dùng.`);
+  });
+  $('#local-ai-action').addEventListener('click', async () => {
+    const local = state.aiStatus?.local || {};
+    if (local.state === 'downloading') {
+      await api.pauseLocalAIDownload();
+      await refreshAIStatus();
+      return;
+    }
+    renderLocalAIStatus({ ...local, state: 'downloading', message: 'Đang chuẩn bị tải AI cục bộ…' });
+    api.downloadLocalAI()
+      .then(async (status) => {
+        await refreshAIStatus();
+        if (['ready', 'running'].includes(status?.local?.state)) showToast('AI cục bộ đã sẵn sàng để học offline.');
+      })
+      .catch(async (error) => {
+        await refreshAIStatus();
+        const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+        showToast(message || 'Không thể tải AI cục bộ.', '!', true);
+      });
+  });
+  $('#local-ai-test').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Đang nạp model…';
+    try {
+      const result = await api.testLocalAI();
+      showToast(`AI cục bộ phản hồi sau ${(result.elapsedMs / 1000).toFixed(1)} giây.`);
+      await refreshAIStatus();
+    } catch (error) {
+      const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+      showToast(message || 'AI cục bộ chưa thể phản hồi.', '!', true);
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Kiểm tra thử';
+    }
+  });
+  $('#local-ai-stop').addEventListener('click', async () => {
+    await api.stopLocalAI();
+    await refreshAIStatus();
+    showToast('Đã giải phóng model khỏi RAM và VRAM.');
+  });
+  $('#local-ai-delete').addEventListener('click', () => askConfirm(
+    'Xóa AI cục bộ?',
+    'Model khoảng 2.33 GB và runtime sẽ bị xóa. Dữ liệu học, lịch FSRS và API key không bị ảnh hưởng.',
+    async () => {
+      closeConfirm();
+      try {
+        await api.deleteLocalAI();
+        await refreshAIStatus();
+        showToast('Đã xóa AI cục bộ khỏi máy.');
+      } catch {
+        showToast('Không thể xóa model lúc này.', '!', true);
+      }
+    },
+    'Xóa model'
+  ));
   $('#save-gemini-key').addEventListener('click', async () => {
     const input = $('#gemini-key-input');
     const button = $('#save-gemini-key');
@@ -1180,7 +1504,7 @@ function bindEvents() {
       input.value = '';
       state.geminiConfigured = true;
       state.geminiModel = result.model;
-      await refreshGeminiStatus();
+      await refreshAIStatus();
       showToast('Đã kết nối Gemini an toàn.');
     } catch (error) {
       const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -1238,6 +1562,14 @@ async function init() {
   await persist();
   bindEvents();
   api.onUpdateStatus?.(renderUpdateStatus);
+  api.onAIStatus?.((local) => {
+    state.aiStatus = { ...(state.aiStatus || {}), local };
+    const preference = state.data?.settings?.aiProvider || 'auto';
+    if (['ready', 'loading', 'running', 'generating'].includes(local.state) && preference !== 'gemini') {
+      state.aiStatus.activeProvider = 'local';
+    }
+    renderLocalAIStatus(local);
+  });
   renderPosOptions();
   renderDefinitionFields();
   renderHome();

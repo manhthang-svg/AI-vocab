@@ -25,6 +25,7 @@ test('FSRS creates four increasingly distant outcomes for a new word', () => {
   assert.ok(due[2] < due[3]);
   assert.equal(preview[Rating.Good].card.state, State.Learning);
   assert.equal(preview[Rating.Easy].card.state, State.Review);
+  assert.ok(preview[Rating.Easy].card.scheduled_days >= 1, 'Easy must graduate to a multi-day interval, never the 10-minute learning step');
 });
 
 test('a higher retention target schedules the same learned word sooner', () => {

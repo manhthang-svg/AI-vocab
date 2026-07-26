@@ -128,6 +128,7 @@
         <section class="view" id="view-stats">
           <div class="page-heading"><div><p class="eyebrow">TIẾN BỘ</p><h1>Những bước nhỏ của bạn</h1><p>Không cần vội — đều đặn đã là một thành tựu rồi.</p></div></div>
           <div class="stat-cards" id="stat-cards"></div>
+          <div class="ai-stats-strip" id="ai-stats-strip"></div>
           <div class="stats-grid"><article class="card chart-card"><div class="section-heading small"><div><h2>Hoạt động 7 ngày</h2><p>Số lượt thêm và ôn từ.</p></div></div><div class="bar-chart" id="weekly-chart"></div></article><article class="card mastery-card"><div class="section-heading small"><div><h2>Mức độ ghi nhớ</h2><p>Tổng quan kho từ của bạn.</p></div></div><div id="mastery-breakdown"></div></article></div>
           <article class="card heatmap-card"><div class="section-heading small"><div><h2>Lịch học 16 tuần</h2><p>Màu đậm hơn nghĩa là bạn đã học nhiều hơn trong ngày đó.</p></div><div class="heatmap-legend"><span>Ít</span><i></i><i></i><i></i><i></i><span>Nhiều</span></div></div><div class="calendar-heatmap" id="calendar-heatmap"></div></article>
           <article class="card difficult-card"><div class="section-heading small"><div><h2>Cần ôn thêm</h2><p>Các từ bạn thường quên sẽ được ưu tiên trong lịch ôn.</p></div></div><div class="word-list" id="difficult-list"></div></article>
@@ -137,12 +138,26 @@
           <div class="page-heading"><div><p class="eyebrow">CÀI ĐẶT</p><h1>Không gian của bạn</h1><p>Điều chỉnh milim để việc học luôn thật nhẹ nhàng.</p></div></div>
           <div class="settings-grid">
             <article class="settings-card"><div><span class="settings-icon">♡</span><h2>Nhắc mình ôn tập</h2><p>Milim sẽ nhắc khi còn từ đến hạn ôn.</p></div><label class="switch"><input id="notification-toggle" type="checkbox" /><span></span></label><label class="time-field">Thời gian nhắc<input id="notification-time" type="time" /></label></article>
-            <article class="settings-card gemini-card"><div><span class="settings-icon">✦</span><h2>Gemini chấm bài</h2><p>API key được mã hóa trên máy và chỉ gửi trực tiếp đến Google Gemini.</p></div><div class="api-key-row"><input id="gemini-key-input" type="password" autocomplete="off" placeholder="Dán Gemini API key..." /><button class="primary-btn" id="save-gemini-key">Lưu & kiểm tra</button></div><p class="api-status" id="gemini-status">Đang kiểm tra cấu hình...</p></article>
+            <article class="settings-card local-ai-card">
+              <div class="local-ai-heading"><div><span class="settings-icon">✦</span><h2>AI cục bộ · không cần API key</h2><p>Qwen3 4B chạy ngay trên máy, hoạt động offline sau khi tải và tự giải phóng RAM khi không dùng.</p></div><span class="privacy-pill">RIÊNG TƯ · OFFLINE</span></div>
+              <div class="ai-config-grid">
+                <label><span>Ưu tiên chấm bài</span><select id="ai-provider"><option value="auto">Tự động · khuyên dùng</option><option value="local">Chỉ AI cục bộ</option><option value="gemini">Chỉ Gemini</option></select></label>
+                <label><span>Tài nguyên</span><select id="ai-resource-mode"><option value="saver">Tiết kiệm</option><option value="balanced">Cân bằng · khuyên dùng</option><option value="fast">Nhanh</option></select></label>
+                <label><span>Tự giải phóng RAM</span><select id="ai-idle-minutes"><option value="2">Sau 2 phút</option><option value="5">Sau 5 phút</option><option value="10">Sau 10 phút</option><option value="20">Sau 20 phút</option></select></label>
+              </div>
+              <div class="local-model-panel">
+                <div class="model-status-row"><div><strong id="local-ai-model-name">Qwen3 4B · Q4_K_M</strong><span id="local-ai-status">Đang kiểm tra model...</span></div><b id="local-ai-size">2.33 GB</b></div>
+                <div class="model-progress hidden" id="local-ai-progress"><i id="local-ai-progress-bar"></i></div>
+                <div class="local-ai-actions"><button class="primary-btn" id="local-ai-action">Tải AI cục bộ</button><button class="soft-btn hidden" id="local-ai-test">Kiểm tra thử</button><button class="text-btn hidden" id="local-ai-stop">Giải phóng RAM</button><button class="text-btn danger-text hidden" id="local-ai-delete">Xóa model</button></div>
+              </div>
+              <div class="ai-usage" id="ai-usage"></div>
+            </article>
+            <article class="settings-card gemini-card"><div><span class="settings-icon">G</span><h2>Gemini · tùy chọn dự phòng</h2><p>Chỉ dùng khi bạn chọn Gemini hoặc chế độ Tự động không có model cục bộ. API key được mã hóa trên máy.</p></div><div class="api-key-row"><input id="gemini-key-input" type="password" autocomplete="off" placeholder="Dán Gemini API key..." /><button class="primary-btn" id="save-gemini-key">Lưu & kiểm tra</button></div><p class="api-status" id="gemini-status">Đang kiểm tra cấu hình...</p></article>
             <article class="settings-card fsrs-card"><div><span class="settings-icon">⌁</span><h2>Lịch ôn thông minh</h2><p>FSRS-6 dự đoán khả năng nhớ của từng từ và tự chọn ngày ôn phù hợp.</p></div><label class="retention-field"><span><b>Mục tiêu ghi nhớ</b><strong id="retention-value">90%</strong></span><input id="retention-input" type="range" min="80" max="95" step="1" value="90" /><small>Cao hơn sẽ nhớ chắc hơn, nhưng cần ôn thường xuyên hơn.</small></label></article>
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.2.1</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.3.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
