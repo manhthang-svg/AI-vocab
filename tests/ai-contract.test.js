@@ -6,12 +6,29 @@ const path = require('node:path');
 const http = require('node:http');
 const {
   extractJsonObject,
+  feedbackContainsUnexpectedScript,
   normalizeChallenge,
   normalizeReviewResult,
   manualChallenge,
   manualReviewResult
 } = require('../src/ai-contract');
 const { LocalAIManager, MODEL, ENGINE } = require('../local-ai');
+
+test('rejects grading feedback that mixes in CJK scripts', () => {
+  assert.equal(feedbackContainsUnexpectedScript({
+    meaning_feedback: 'Bạn đã hiểu đúng nghĩa.',
+    sentence_feedback: "Câu语法 có một lỗi nhỏ về冠词 'a'.",
+    overall_feedback: 'Hãy thử lại.'
+  }), true);
+  assert.throws(() => normalizeReviewResult({
+    meaning_score: 8,
+    sentence_score: 6,
+    meaning_feedback: 'Bạn đã hiểu đúng nghĩa.',
+    sentence_feedback: 'Câu语法 có một lỗi nhỏ.',
+    corrected_sentence: 'The monkey is a primate.',
+    overall_feedback: 'Khá tốt.'
+  }), /trộn ngôn ngữ khác/);
+});
 
 test('local model output is parsed even with a fenced JSON response', () => {
   const value = extractJsonObject('```json\n{"meaning_score":8}\n```');
@@ -40,6 +57,22 @@ test('a generated Vietnamese prompt cannot reveal the target word', () => {
     vietnamese_sentence: 'Cô ấy đang mang một chiếc túi rất đẹp.',
     suggested_answer: 'She is carrying a beautiful bag.'
   }, 'a'));
+  assert.throws(() => normalizeChallenge({
+    vietnamese_sentence: 'Các người bạn bắt đầu mingles với nhau trong bữa tiệc.',
+    suggested_answer: 'The friends began to mingle at the party.'
+  }, 'mingle'), /để lộ từ mục tiêu/);
+  assert.throws(() => normalizeChallenge({
+    vietnamese_sentence: 'Cuối cùng cô ấy figured out được đáp án.',
+    suggested_answer: 'She finally figured out the answer.'
+  }, 'figure out'), /để lộ từ mục tiêu/);
+  assert.throws(() => normalizeChallenge({
+    vietnamese_sentence: 'Anh ấy went đến trường từ rất sớm.',
+    suggested_answer: 'He went to school very early.'
+  }, 'go'), /để lộ từ mục tiêu/);
+  assert.throws(() => normalizeChallenge({
+    vietnamese_sentence: 'Cô ấy đang running trong công viên.',
+    suggested_answer: 'She is running in the park.'
+  }, 'run'), /để lộ từ mục tiêu/);
 });
 
 test('manual fallback keeps review available without an AI provider', () => {

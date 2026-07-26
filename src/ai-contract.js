@@ -16,8 +16,71 @@ function extractJsonObject(text) {
   return JSON.parse(source.slice(start, end + 1));
 }
 
+function targetWordForms(targetWord) {
+  const target = String(targetWord || '').trim().toLocaleLowerCase('en');
+  if (!target) return [];
+  const words = target.split(/\s+/);
+  const base = words[0];
+  const suffixes = words.slice(1);
+  const forms = new Set([base, `${base}s`, `${base}es`, `${base}ed`, `${base}ing`]);
+  if (base.endsWith('e') && base.length > 2) {
+    forms.add(`${base}s`);
+    forms.add(`${base}d`);
+    forms.add(`${base.slice(0, -1)}ing`);
+  }
+  if (/[^aeiou]y$/i.test(base)) {
+    forms.add(`${base.slice(0, -1)}ies`);
+    forms.add(`${base.slice(0, -1)}ied`);
+  }
+  if (/(s|x|z|ch|sh|o)$/i.test(base)) forms.add(`${base}es`);
+  if (/[^aeiou][aeiou][^aeiouwxy]$/i.test(base)) {
+    forms.add(`${base}${base.slice(-1)}ed`);
+    forms.add(`${base}${base.slice(-1)}ing`);
+  }
+
+  const irregularForms = {
+    be: ['am', 'is', 'are', 'was', 'were', 'been', 'being'],
+    begin: ['begins', 'began', 'begun', 'beginning'],
+    come: ['comes', 'came', 'coming'],
+    do: ['does', 'did', 'done', 'doing'],
+    get: ['gets', 'got', 'gotten', 'getting'],
+    go: ['goes', 'went', 'gone', 'going'],
+    have: ['has', 'had', 'having'],
+    make: ['makes', 'made', 'making'],
+    run: ['runs', 'ran', 'running'],
+    say: ['says', 'said', 'saying'],
+    see: ['sees', 'saw', 'seen', 'seeing'],
+    speak: ['speaks', 'spoke', 'spoken', 'speaking'],
+    take: ['takes', 'took', 'taken', 'taking'],
+    write: ['writes', 'wrote', 'written', 'writing'],
+  };
+  (irregularForms[base] || []).forEach((form) => forms.add(form));
+  const phrases = [...forms].map((form) => suffixes.length ? [form, ...suffixes].join(' ') : form);
+  return [...new Set([target, ...phrases])].sort((a, b) => b.length - a.length);
+}
+
+function challengeLeaksTarget(sentence, targetWord) {
+  const source = String(sentence || '');
+  return targetWordForms(targetWord).some((form) => {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, 'iu').test(source);
+  });
+}
+
+function feedbackContainsUnexpectedScript(value) {
+  const feedback = [
+    value?.meaning_feedback,
+    value?.sentence_feedback,
+    value?.overall_feedback
+  ].join(' ');
+  return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/u.test(feedback);
+}
+
 function normalizeReviewResult(value, provider = 'local') {
   const parsed = typeof value === 'string' ? extractJsonObject(value) : (value || {});
+  if (feedbackContainsUnexpectedScript(parsed)) {
+    throw new Error('AI đã trộn ngôn ngữ khác vào nhận xét. Milim sẽ chấm lại.');
+  }
   const meaningScore = clampScore(parsed.meaning_score);
   const sentenceScore = clampScore(parsed.sentence_score);
   return {
@@ -37,10 +100,7 @@ function normalizeChallenge(value, targetWord, provider = 'local') {
   const vietnameseSentence = String(parsed.vietnamese_sentence || '').trim().slice(0, 1200);
   const suggestedAnswer = String(parsed.suggested_answer || '').trim().slice(0, 1200);
   if (!vietnameseSentence || !suggestedAnswer) throw new Error('AI chưa tạo được câu hỏi hợp lệ.');
-  const target = String(targetWord || '').trim();
-  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const targetPattern = escapedTarget ? new RegExp(`(^|[^\\p{L}\\p{N}])${escapedTarget}([^\\p{L}\\p{N}]|$)`, 'iu') : null;
-  if (targetPattern?.test(vietnameseSentence)) {
+  if (challengeLeaksTarget(vietnameseSentence, targetWord)) {
     throw new Error('AI đã vô tình để lộ từ mục tiêu. Milim sẽ tạo câu khác.');
   }
   return {
@@ -77,9 +137,12 @@ function manualReviewResult(payload = {}) {
 
 module.exports = {
   clampScore,
+  challengeLeaksTarget,
   extractJsonObject,
+  feedbackContainsUnexpectedScript,
   normalizeChallenge,
   normalizeReviewResult,
   manualChallenge,
-  manualReviewResult
+  manualReviewResult,
+  targetWordForms
 };

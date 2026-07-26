@@ -215,6 +215,56 @@ function freshSrs(createdAt = new Date()) {
   return { algorithm: FSRS_ALGORITHM, fsrs, repetitions: 0, interval: 0, ease: 2.5, lapses: 0, dueAt: fsrs.due, lastReviewedAt: null, history: [] };
 }
 
+function targetWordForms(targetWord) {
+  const target = String(targetWord || '').trim().toLocaleLowerCase('en');
+  if (!target) return [];
+  const words = target.split(/\s+/);
+  const base = words[0];
+  const suffixes = words.slice(1);
+  const forms = new Set([base, `${base}s`, `${base}es`, `${base}ed`, `${base}ing`]);
+  if (base.endsWith('e') && base.length > 2) {
+    forms.add(`${base}s`);
+    forms.add(`${base}d`);
+    forms.add(`${base.slice(0, -1)}ing`);
+  }
+  if (/[^aeiou]y$/i.test(base)) {
+    forms.add(`${base.slice(0, -1)}ies`);
+    forms.add(`${base.slice(0, -1)}ied`);
+  }
+  if (/(s|x|z|ch|sh|o)$/i.test(base)) forms.add(`${base}es`);
+  if (/[^aeiou][aeiou][^aeiouwxy]$/i.test(base)) {
+    forms.add(`${base}${base.slice(-1)}ed`);
+    forms.add(`${base}${base.slice(-1)}ing`);
+  }
+
+  const irregularForms = {
+    be: ['am', 'is', 'are', 'was', 'were', 'been', 'being'],
+    begin: ['begins', 'began', 'begun', 'beginning'],
+    come: ['comes', 'came', 'coming'],
+    do: ['does', 'did', 'done', 'doing'],
+    get: ['gets', 'got', 'gotten', 'getting'],
+    go: ['goes', 'went', 'gone', 'going'],
+    have: ['has', 'had', 'having'],
+    make: ['makes', 'made', 'making'],
+    run: ['runs', 'ran', 'running'],
+    say: ['says', 'said', 'saying'],
+    see: ['sees', 'saw', 'seen', 'seeing'],
+    speak: ['speaks', 'spoke', 'spoken', 'speaking'],
+    take: ['takes', 'took', 'taken', 'taking'],
+    write: ['writes', 'wrote', 'written', 'writing'],
+  };
+  (irregularForms[base] || []).forEach((form) => forms.add(form));
+  const phrases = [...forms].map((form) => suffixes.length ? [form, ...suffixes].join(' ') : form);
+  return [...new Set([target, ...phrases])];
+}
+
+function challengeLeaksTarget(sentence, targetWord) {
+  return targetWordForms(targetWord).some((form) => {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, 'iu').test(String(sentence || ''));
+  });
+}
+
 function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
   const legacyPos = Array.isArray(word.partsOfSpeech) ? word.partsOfSpeech : (word.partOfSpeech ? [word.partOfSpeech] : []);
   const definitions = Array.isArray(word.definitions) && word.definitions.length
@@ -246,7 +296,7 @@ function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
     createdAt,
     createdDate: word.createdDate || localDate(createdAt),
     recallCache: Array.isArray(word.recallCache) ? word.recallCache
-      .filter((item) => item && item.vietnamese_sentence)
+      .filter((item) => item && item.vietnamese_sentence && !challengeLeaksTarget(item.vietnamese_sentence, word.term))
       .slice(-5)
       .map((item) => ({
         vietnamese_sentence: String(item.vietnamese_sentence).slice(0, 1200),
@@ -781,7 +831,9 @@ function restoreReviewSession() {
     checking: false,
     result: saved.result || null,
     draft: saved.draft || { sentence: '' },
-    challenge: saved.challenge || null,
+    challenge: saved.challenge && !challengeLeaksTarget(saved.challenge.vietnamese_sentence, state.data.words.find((word) => word.id === queue[0])?.term)
+      ? saved.challenge
+      : null,
     challengeLoading: false,
     challengeError: ''
   };
@@ -789,7 +841,8 @@ function restoreReviewSession() {
 }
 
 function cachedChallenge(word) {
-  const available = (word.recallCache || []).filter((item) => item.vietnamese_sentence);
+  word.recallCache = (word.recallCache || []).filter((item) => item.vietnamese_sentence && !challengeLeaksTarget(item.vietnamese_sentence, word.term));
+  const available = word.recallCache;
   if (!available.length) return null;
   const selected = [...available].sort((a, b) => (a.uses || 0) - (b.uses || 0))[0];
   selected.uses = (selected.uses || 0) + 1;
@@ -797,7 +850,7 @@ function cachedChallenge(word) {
 }
 
 function cacheChallenge(word, challenge) {
-  if (!challenge || challenge.manual || !challenge.vietnamese_sentence) return;
+  if (!challenge || challenge.manual || !challenge.vietnamese_sentence || challengeLeaksTarget(challenge.vietnamese_sentence, word.term)) return;
   word.recallCache ||= [];
   const duplicate = word.recallCache.some((item) => item.vietnamese_sentence === challenge.vietnamese_sentence);
   if (!duplicate) {
@@ -956,7 +1009,7 @@ function renderReviewCard() {
       <p class="ai-disclaimer">Lịch ôn chỉ dựa trên điểm Đúng ý. Điểm Tiếng Anh được lưu để góp ý và hoàn toàn không ảnh hưởng Again / Hard / Good / Easy.</p>
     </section>` : '';
   const sourceNote = challenge.fromCache ? 'Câu hỏi đã chuẩn bị sẵn' : challenge.manual ? 'Chế độ tự đánh giá' : `Tạo bởi ${aiProviderName(challenge.provider)}`;
-  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><b>${escapeHtml(sourceNote)} · không có gợi ý từ</b></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="ai-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>${challenge.manual ? 'Milim sẽ hiện từ mục tiêu để bạn tự đánh giá.' : 'AI sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.'}</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
+  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><div><b>${escapeHtml(sourceNote)} · không có gợi ý từ</b>${!result && !review.checking ? '<button class="regenerate-challenge" id="regenerate-challenge">Tạo câu khác</button>' : ''}</div></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="ai-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>${challenge.manual ? 'Milim sẽ hiện từ mục tiêu để bạn tự đánh giá.' : 'AI sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.'}</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
   updateQuickTimer();
 }
 
@@ -1382,6 +1435,17 @@ function bindEvents() {
     if (manualGrade && state.review?.result?.manual) gradeCurrent(manualGrade.dataset.manualGrade, state.review.result);
     if (event.target.closest('#retry-challenge') && state.review) {
       state.review.challengeError = '';
+      renderReviewCard();
+    }
+    if (event.target.closest('#regenerate-challenge') && state.review?.challenge) {
+      const word = state.data.words.find((item) => item.id === state.review.queue[0]);
+      if (word) {
+        word.recallCache = (word.recallCache || []).filter((item) => item.vietnamese_sentence !== state.review.challenge.vietnamese_sentence);
+      }
+      state.review.challenge = null;
+      state.review.challengeError = '';
+      state.review.draft = { sentence: '' };
+      persistReviewSession();
       renderReviewCard();
     }
     if (event.target.closest('#finish-review')) endReview();
