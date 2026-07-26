@@ -1,13 +1,13 @@
 {
   "name": "milim",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "A gentle, local-first English vocabulary companion.",
   "main": "main.js",
   "author": "milim",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.js && node --check preload.js && node --check src/tree.js && node --check src/app.js",
+    "check": "node --check main.js && node --check preload.js && node --check src/grading.js && node --check src/tree.js && node --check src/app.js",
     "test": "node --test tests/*.test.js",
     "dist": "electron-builder --win",
     "release": "electron-builder --win --publish always"
