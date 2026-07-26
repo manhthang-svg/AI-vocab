@@ -12,6 +12,10 @@ const MODEL = {
   name: 'Qwen3 4B · Q4_K_M',
   filename: 'Qwen3-4B-Q4_K_M.gguf',
   url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true',
+  urls: [
+    'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true',
+    'https://modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf'
+  ],
   size: 2497280256,
   sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5'
 };
@@ -78,10 +82,11 @@ function freePort() {
 }
 
 class LocalAIManager {
-  constructor({ root, publish = () => {}, smokeMode = false }) {
+  constructor({ root, publish = () => {}, smokeMode = false, retryDelayMs = 1200 }) {
     this.root = root;
     this.publish = publish;
     this.smokeMode = smokeMode;
+    this.retryDelayMs = retryDelayMs;
     this.runtimeDir = path.join(root, 'runtime', ENGINE.version);
     this.modelDir = path.join(root, 'models');
     this.modelPath = path.join(this.modelDir, MODEL.filename);
@@ -254,9 +259,42 @@ class LocalAIManager {
       await fsp.rm(partial, { force: true });
       offset = 0;
     }
+    if (offset === meta.size) {
+      await fsp.rm(destination, { force: true });
+      await fsp.rename(partial, destination);
+      onProgress(offset);
+      return;
+    }
+    const sources = Array.isArray(meta.urls) && meta.urls.length ? meta.urls : [meta.url];
+    const failures = [];
+    for (const source of sources) {
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          await this.downloadFromSource(meta, source, destination, partial, signal, onProgress);
+          return;
+        } catch (error) {
+          if (error?.name === 'AbortError') throw error;
+          const host = new URL(source).hostname;
+          const detail = error?.cause?.code || error?.cause?.message || error.message;
+          failures.push(`${host}: ${detail}`);
+          if (attempt < 2) {
+            this.emit({ state: 'downloading', message: `Kết nối ${host} bị gián đoạn · đang thử lại…` });
+            await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+          }
+        }
+      }
+      const next = sources[sources.indexOf(source) + 1];
+      if (next) this.emit({ state: 'downloading', message: `Nguồn chính không phản hồi · chuyển sang ${new URL(next).hostname}…` });
+    }
+    throw new Error(`Không thể kết nối máy chủ tải AI. ${failures.slice(-3).join(' · ')}. Hãy kiểm tra VPN/proxy hoặc thử lại sau.`);
+  }
+
+  async downloadFromSource(meta, source, destination, partial, signal, onProgress) {
+    let offset = 0;
+    try { offset = (await fsp.stat(partial)).size; } catch { /* Start from zero. */ }
     const headers = { 'User-Agent': 'milim-local-ai/1.0' };
     if (offset) headers.Range = `bytes=${offset}-`;
-    const response = await fetch(meta.url, { headers, signal, redirect: 'follow' });
+    const response = await fetch(source, { headers, signal, redirect: 'follow' });
     if (!response.ok && response.status !== 206) throw new Error(`Máy chủ tải model trả về lỗi ${response.status}.`);
     if (offset && response.status !== 206) {
       await fsp.rm(partial, { force: true });

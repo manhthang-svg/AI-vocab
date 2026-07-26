@@ -1,5 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
 const {
   extractJsonObject,
   normalizeChallenge,
@@ -7,7 +11,7 @@ const {
   manualChallenge,
   manualReviewResult
 } = require('../src/ai-contract');
-const { MODEL, ENGINE } = require('../local-ai');
+const { LocalAIManager, MODEL, ENGINE } = require('../local-ai');
 
 test('local model output is parsed even with a fenced JSON response', () => {
   const value = extractJsonObject('```json\n{"meaning_score":8}\n```');
@@ -51,4 +55,45 @@ test('official local AI artifacts have pinned sizes and SHA-256 digests', () => 
   assert.equal(ENGINE.size, 33479694);
   assert.match(MODEL.sha256, /^[a-f0-9]{64}$/);
   assert.match(ENGINE.sha256, /^[a-f0-9]{64}$/);
+});
+
+test('downloader changes source after repeated connection failures', async () => {
+  const broken = http.createServer((_request, response) => response.destroy());
+  const fallback = http.createServer((request, response) => {
+    const payload = Buffer.from('GGUF');
+    const range = request.headers.range;
+    if (range) {
+      const start = Number(range.match(/bytes=(\d+)-/)?.[1] || 0);
+      response.writeHead(206, {
+        'Content-Length': payload.length - start,
+        'Content-Range': `bytes ${start}-${payload.length - 1}/${payload.length}`
+      });
+      response.end(payload.subarray(start));
+      return;
+    }
+    response.writeHead(200, { 'Content-Length': payload.length });
+    response.end(payload);
+  });
+  await Promise.all([
+    new Promise((resolve) => broken.listen(0, '127.0.0.1', resolve)),
+    new Promise((resolve) => fallback.listen(0, '127.0.0.1', resolve))
+  ]);
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'milim-download-test-'));
+  try {
+    const manager = new LocalAIManager({ root: temporary, retryDelayMs: 1 });
+    const destination = path.join(temporary, 'model.gguf');
+    await manager.downloadFile({
+      filename: 'model.gguf',
+      size: 4,
+      urls: [
+        `http://127.0.0.1:${broken.address().port}/model.gguf`,
+        `http://127.0.0.1:${fallback.address().port}/model.gguf`
+      ]
+    }, destination, new AbortController().signal, () => {});
+    assert.equal(await fs.readFile(destination, 'utf8'), 'GGUF');
+  } finally {
+    broken.close();
+    fallback.close();
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
 });
