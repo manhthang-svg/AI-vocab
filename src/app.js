@@ -685,7 +685,7 @@ function showWordHistory(id) {
   $('#history-pattern').innerHTML = history.length
     ? `<p>Bạn thường đánh giá từ này ở mức <strong>${gradeName(common[0])}</strong> (${common[1]} lần). FSRS đang ước tính độ khó ${Number(word.srs.fsrs?.difficulty || 0).toFixed(1)}/10.</p><div class="history-bars">${Object.entries(counts).map(([grade, count]) => `<span class="history-grade ${grade}">${gradeName(grade)} <b>${count}</b></span>`).join('')}</div>`
     : '<p>Từ này chưa có lần ôn nào.</p>';
-  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : ''}${item.aiProvider ? `<span>${escapeHtml(aiProviderName(item.aiProvider))}</span>` : ''}<span>Hẹn lại: ${intervalLabel(item.interval || 0, item.grade, item.dueAt, item.at)}</span>${Number.isFinite(item.stability) ? `<span>Ổn định ${item.stability.toFixed(1)} ngày</span>` : ''}</div></div>`).join('') : '';
+  $('#history-list').innerHTML = history.length ? history.slice(0, 20).map((item) => `<div class="history-entry"><div><strong>${gradeName(item.grade)}</strong><span>${new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.at))}</span></div><div>${Number.isFinite(item.meaningScore) ? `<span>Đúng ý ${item.meaningScore}/10</span><span>Tiếng Anh ${item.sentenceScore}/10</span>` : ''}<span>${item.reviewMode === 'fast' ? 'Ôn nhanh' : item.aiProvider ? escapeHtml(aiProviderName(item.aiProvider)) : 'Ôn tập'}</span><span>Hẹn lại: ${intervalLabel(item.interval || 0, item.grade, item.dueAt, item.at)}</span>${Number.isFinite(item.stability) ? `<span>Ổn định ${item.stability.toFixed(1)} ngày</span>` : ''}</div></div>`).join('') : '';
   $('#history-modal').classList.remove('hidden');
 }
 
@@ -795,6 +795,9 @@ function serializeReviewSession(review) {
     requeued: [...review.requeued],
     title: review.title,
     quick: review.quick,
+    mode: review.mode,
+    revealed: review.revealed,
+    deepWords: [...review.deepWords],
     endsAt: review.endsAt,
     checking: false,
     result: review.result,
@@ -827,6 +830,9 @@ function restoreReviewSession() {
     requeued: new Set(Array.isArray(saved.requeued) ? saved.requeued : []),
     title: String(saved.title || 'Phiên ôn đang dở'),
     quick: Boolean(saved.quick),
+    mode: ['fast', 'deep'].includes(saved.mode) ? saved.mode : 'deep',
+    revealed: Boolean(saved.revealed),
+    deepWords: new Set(Array.isArray(saved.deepWords) ? saved.deepWords.filter((id) => knownIds.has(id)) : []),
     endsAt: saved.quick && Number(saved.endsAt) > Date.now() ? Number(saved.endsAt) : null,
     checking: false,
     result: saved.result || null,
@@ -896,13 +902,14 @@ function renderReviewWelcome() {
   $('#review-title').textContent = 'Ôn tập hôm nay';
   $('#review-exit').classList.add('hidden');
   const overdueList = overdue.slice(0, 5).map((word) => `<span>${escapeHtml(word.term)}</span>`).join('');
-  $('#review-stage').innerHTML = `<div class="review-dashboard">${resumable ? `<section class="resume-review-card"><div><span>PHIÊN ĐANG DỞ</span><strong>${escapeHtml(state.data.reviewSession.title || 'Ôn tập')}</strong><p>Còn ${state.data.reviewSession.queue.length} câu · tiến độ đã được lưu tự động.</p></div><button class="primary-btn" id="resume-review">Tiếp tục phiên →</button></section>` : ''}<div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">VIỆT → ANH</span><h2>${due.length ? `${due.length} câu đang chờ bạn dịch` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Milim tạo câu tiếng Việt, giấu hoàn toàn từ mục tiêu và chấm bản dịch tiếng Anh của bạn.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên nhanh hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p>${reviewAIStatusMarkup()}<div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Bắt đầu active recall</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Ôn nhanh 5 phút</button>' : ''}</div></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Các câu sẽ được xáo trộn; từ mục tiêu không xuất hiện trước khi bạn trả lời.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
+  $('#review-stage').innerHTML = `<div class="review-dashboard">${resumable ? `<section class="resume-review-card"><div><span>PHIÊN ĐANG DỞ</span><strong>${escapeHtml(state.data.reviewSession.title || 'Ôn tập')}</strong><p>Còn ${state.data.reviewSession.queue.length} từ · tiến độ đã được lưu tự động.</p></div><button class="primary-btn" id="resume-review">Tiếp tục phiên →</button></section>` : ''}<div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">NHỚ NHANH · ÔN SÂU KHI CẦN</span><h2>${due.length ? `${due.length} từ đang chờ ôn` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Xem nghĩa, tự nhớ từ rồi lật đáp án. Từ bị Quên hoặc Khó sẽ được Milim đưa sang luyện sâu bằng AI.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên 5 phút hoặc luyện sâu bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p><div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Ôn nhanh từ đến hạn</button><button class="soft-btn" id="start-deep-review">Ôn sâu bằng AI</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn sâu bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Phiên nhanh 5 phút</button>' : ''}</div><p class="review-shortcut-note">Phím tắt khi ôn nhanh: Space để lật · 1 Quên · 2 Khó · 3 Nhớ · 4 Rất dễ</p></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Ôn nhanh trước; từ còn yếu sẽ tự chuyển sang luyện sâu.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn nhanh từ quá hạn</button></section>` : ''}</div>`;
 }
 
 async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
   if (!words.length) { showToast('Bộ này chưa có từ để ôn.', '!', true); return; }
   const shuffled = shuffleWords(words);
-  const selected = options.quick ? shuffled.slice(0, 20) : shuffled;
+  const selected = options.quick ? shuffled.slice(0, 40) : shuffled;
+  const mode = options.mode === 'fast' ? 'fast' : 'deep';
   state.review = {
     queue: selected.map((word) => word.id),
     total: selected.length,
@@ -911,6 +918,9 @@ async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
     requeued: new Set(),
     title,
     quick: Boolean(options.quick),
+    mode,
+    revealed: false,
+    deepWords: new Set(),
     endsAt: options.quick ? Date.now() + 5 * 60 * 1000 : null,
     checking: false,
     result: null,
@@ -928,7 +938,7 @@ async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
 
 function startQuickReview() {
   const candidates = dueWords().length ? dueWords() : [...state.data.words].sort((a, b) => new Date(a.srs.lastReviewedAt || 0) - new Date(b.srs.lastReviewedAt || 0));
-  startReview(candidates, 'Ôn nhanh 5 phút', { quick: true });
+  startReview(candidates, 'Ôn nhanh 5 phút', { quick: true, mode: 'fast' });
 }
 
 function intervalLabel(days, grade, dueAt = null, from = new Date()) {
@@ -974,17 +984,42 @@ function projectedSchedule(word, grade, now = new Date()) {
   }
 }
 
+function renderFastReviewCard(review, word, progressHeader) {
+  const definitions = definitionText(word, true);
+  const gradeChoices = ['again', 'hard', 'good', 'easy'].map((grade, index) => {
+    const schedule = projectedSchedule(word, grade);
+    return `<button class="manual-grade ${grade}" data-fast-grade="${grade}"><kbd>${index + 1}</kbd><strong>${gradeName(grade)}</strong><span>${intervalLabel(schedule.interval, grade, schedule.dueAt)}</span></button>`;
+  }).join('');
+  const answer = review.revealed ? `
+    <div class="fast-answer">
+      <span>ĐÁP ÁN</span>
+      <div><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
+      <p>Bạn nhớ từ này ở mức nào?</p>
+      <div class="fast-grade-grid">${gradeChoices}</div>
+      ${!review.quick ? '<button class="deep-practice-link" id="practice-deep">Luyện từ này bằng một câu với AI →</button>' : ''}
+    </div>` : `
+    <button class="fast-reveal-btn" id="reveal-fast-answer"><span>Hiện đáp án</span><small>Space hoặc Enter</small></button>
+    <p class="fast-self-check">Hãy nói từ tiếng Anh trong đầu trước khi lật đáp án.</p>`;
+  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>Ôn nhanh · không gọi AI</b>${!review.quick ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p><blockquote>${escapeHtml(definitions)}</blockquote>${answer}</div></div>`;
+  updateQuickTimer();
+}
+
 function renderReviewCard() {
   const review = state.review;
   if (!review || !review.queue.length) { renderReviewComplete(); return; }
   const word = state.data.words.find((item) => item.id === review.queue[0]);
   if (!word) { review.queue.shift(); persistReviewSession(); renderReviewCard(); return; }
   const progress = Math.min(100, (review.answered / Math.max(1, review.total)) * 100);
+  const deepMode = review.mode === 'deep' || review.deepWords.has(word.id);
+  const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Từ ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
+  if (!deepMode) {
+    renderFastReviewCard(review, word, progressHeader);
+    return;
+  }
   if (!review.challenge && !review.challengeLoading && !review.challengeError) loadReviewChallenge(review, word);
   const result = review.result;
   const challenge = review.challenge;
   const nextReviewSchedule = result?.recommended_grade ? projectedSchedule(word, result.recommended_grade) : null;
-  const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Câu ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
   if (!challenge) {
     const loadingContent = review.challengeError
       ? `<div class="challenge-state error"><span>!</span><h2>Chưa tạo được câu hỏi</h2><p>${escapeHtml(review.challengeError)}</p><button class="soft-btn" id="retry-challenge">Thử lại</button></div>`
@@ -1141,23 +1176,29 @@ async function gradeCurrent(grade, result = null) {
   const id = review.queue.shift();
   const word = state.data.words.find((item) => item.id === id);
   if (!word) return renderReviewCard();
+  const wasDeep = review.mode === 'deep' || review.deepWords.has(id);
   applySrs(word, grade, result ? {
     meaningScore: Number.isFinite(result.meaning_score) ? result.meaning_score : null,
     sentenceScore: Number.isFinite(result.sentence_score) ? result.sentence_score : null,
-    aiProvider: result.provider || 'manual'
-  } : {});
+    aiProvider: result.provider || 'manual',
+    reviewMode: 'deep'
+  } : { reviewMode: wasDeep ? 'deep' : 'fast' });
   if (result) {
     const provider = ['local', 'gemini', 'manual'].includes(result.provider) ? result.provider : 'manual';
     state.data.settings.aiUsage[provider] = (Number(state.data.settings.aiUsage[provider]) || 0) + 1;
   }
   review.answered += 1;
   if (grade === 'good' || grade === 'easy') review.correct += 1;
-  if (grade === 'again' && !review.requeued.has(id)) {
+  const shouldEscalate = !review.quick && !wasDeep && (grade === 'again' || grade === 'hard');
+  if ((grade === 'again' || shouldEscalate) && !review.requeued.has(id)) {
     review.requeued.add(id);
     review.queue.push(id);
     review.total += 1;
+    if (shouldEscalate) review.deepWords.add(id);
   }
+  if (grade === 'good' || grade === 'easy') review.deepWords.delete(id);
   review.result = null;
+  review.revealed = false;
   review.draft = { sentence: '' };
   review.challenge = null;
   review.challengeLoading = false;
@@ -1421,8 +1462,9 @@ function bindEvents() {
     const speakingAction = event.target.closest('[data-speaking-action]');
     if (speakingRow && speakingAction?.dataset.speakingAction === 'delete') deleteSpeakingError(speakingRow.dataset.speakingId);
 
-    if (event.target.closest('#start-due-review')) startReview(dueWords());
-    if (event.target.closest('#start-overdue-review')) startReview(overdueWords(), 'Từ quá hạn');
+    if (event.target.closest('#start-due-review')) startReview(dueWords(), 'Ôn nhanh từ đến hạn', { mode: 'fast' });
+    if (event.target.closest('#start-deep-review')) startReview(dueWords(), 'Ôn sâu bằng AI', { mode: 'deep' });
+    if (event.target.closest('#start-overdue-review')) startReview(overdueWords(), 'Ôn nhanh từ quá hạn', { mode: 'fast' });
     if (event.target.closest('#start-quick-review')) startQuickReview();
     if (event.target.closest('#resume-review') && restoreReviewSession()) {
       navigate('review');
@@ -1431,6 +1473,19 @@ function bindEvents() {
       renderReviewCard();
     }
     if (event.target.closest('#continue-review') && state.review?.result) gradeCurrent(state.review.result.recommended_grade, state.review.result);
+    if (event.target.closest('#reveal-fast-answer') && state.review) {
+      state.review.revealed = true;
+      persistReviewSession();
+      renderReviewCard();
+    }
+    const fastGrade = event.target.closest('[data-fast-grade]');
+    if (fastGrade && state.review?.revealed) gradeCurrent(fastGrade.dataset.fastGrade);
+    if (event.target.closest('#practice-deep') && state.review?.queue.length) {
+      state.review.deepWords.add(state.review.queue[0]);
+      state.review.revealed = false;
+      persistReviewSession();
+      renderReviewCard();
+    }
     const manualGrade = event.target.closest('[data-manual-grade]');
     if (manualGrade && state.review?.result?.manual) gradeCurrent(manualGrade.dataset.manualGrade, state.review.result);
     if (event.target.closest('#retry-challenge') && state.review) {
@@ -1612,6 +1667,22 @@ function bindEvents() {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); resetForm(); navigate('add'); }
     if (event.key === 'Escape' && !$('#confirm-modal').classList.contains('hidden')) closeConfirm();
     if (event.key === 'Escape' && !$('#history-modal').classList.contains('hidden')) closeWordHistory();
+    if (state.view === 'review' && state.review && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const activeTag = document.activeElement?.tagName;
+      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
+        const word = state.data.words.find((item) => item.id === state.review.queue[0]);
+        const fastMode = word && state.review.mode !== 'deep' && !state.review.deepWords.has(word.id);
+        if (fastMode && !state.review.revealed && (event.key === ' ' || event.key === 'Enter')) {
+          event.preventDefault();
+          state.review.revealed = true;
+          persistReviewSession();
+          renderReviewCard();
+        } else if (fastMode && state.review.revealed && ['1', '2', '3', '4'].includes(event.key)) {
+          event.preventDefault();
+          gradeCurrent({ 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' }[event.key]);
+        }
+      }
+    }
   });
 }
 

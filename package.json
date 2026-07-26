@@ -1,6 +1,6 @@
 {
   "name": "milim",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "description": "A gentle, local-first English vocabulary companion.",
   "main": "main.js",
   "author": "milim",

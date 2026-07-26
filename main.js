@@ -527,6 +527,10 @@ function createWindow() {
             meaningOnlyGrade: false,
             hiddenRecallWord: false,
             regenerateVisible: false,
+            fastReviewVisible: false,
+            fastRevealVisible: false,
+            fastKeyboardGrade: false,
+            weakWordEscalates: false,
             speakingSaved: false,
             retentionControl: false,
             learningTreeVisible: false,
@@ -569,12 +573,50 @@ function createWindow() {
             document.querySelector('#continue-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 150));
             result.reviewComplete = document.body.innerText.includes('Hoàn thành phiên ôn');
+            document.querySelector('#finish-review')?.click();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            document.querySelector('[data-view="add"]').click();
+            document.querySelector('#term-input').value = 'brief';
+            document.querySelector('#definition-input').value = 'ngắn gọn';
+            document.querySelector('#word-form').requestSubmit();
+            await new Promise(resolve => setTimeout(resolve, 150));
+            document.querySelector('[data-view="review"]').click();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            document.querySelector('#start-due-review')?.click();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            result.fastReviewVisible = document.body.innerText.includes('Ôn nhanh · không gọi AI');
+            result.fastRevealVisible = Boolean(document.querySelector('#reveal-fast-answer')) && !document.querySelector('.fast-answer');
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+            await new Promise(resolve => setTimeout(resolve, 80));
+            result.fastRevealVisible = result.fastRevealVisible && document.body.innerText.includes('ĐÁP ÁN') && document.body.innerText.includes('brief');
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '4' }));
+            await new Promise(resolve => setTimeout(resolve, 120));
+            result.fastKeyboardGrade = document.body.innerText.includes('Hoàn thành phiên ôn');
+            document.querySelector('#finish-review')?.click();
+            await new Promise(resolve => setTimeout(resolve, 80));
+            document.querySelector('[data-view="add"]').click();
+            document.querySelector('#term-input').value = 'mingle';
+            document.querySelector('#definition-input').value = 'hòa nhập, trò chuyện với nhau';
+            document.querySelector('#word-form').requestSubmit();
+            await new Promise(resolve => setTimeout(resolve, 120));
+            document.querySelector('[data-view="review"]').click();
+            document.querySelector('#start-due-review')?.click();
+            await new Promise(resolve => setTimeout(resolve, 80));
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+            await new Promise(resolve => setTimeout(resolve, 60));
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' }));
+            await new Promise(resolve => setTimeout(resolve, 180));
+            result.weakWordEscalates = Boolean(document.querySelector('.recall-card #review-sentence'));
           } else {
             result.reviewComplete = result.reviewFeedback;
+            result.fastReviewVisible = true;
+            result.fastRevealVisible = true;
+            result.fastKeyboardGrade = true;
+            result.weakWordEscalates = true;
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
