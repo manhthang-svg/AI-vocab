@@ -289,6 +289,7 @@ function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
     ...word,
     id: word.id || uid(),
     term: String(word.term || ''),
+    note: String(word.note || '').slice(0, 1500),
     definition: definitions.map((item) => item.definition).filter(Boolean).join('\n'),
     definitions,
     partsOfSpeech,
@@ -363,6 +364,11 @@ function definitionText(word, withLabels = false) {
     const label = posName(item.partOfSpeech);
     return withLabels && label ? `${label}: ${item.definition}` : item.definition;
   }).filter(Boolean).join('\n');
+}
+
+function reviewNoteMarkup(word) {
+  const note = String(word?.note || '').trim();
+  return note ? `<aside class="review-note"><div>✦</div><section><span>NOTE CỦA BẠN</span><p>${escapeHtml(note)}</p></section></aside>` : '';
 }
 
 function mastery(word) {
@@ -502,7 +508,14 @@ function renderGlobal() {
   $('#nav-due-count').textContent = due > 99 ? '99+' : due;
   $('#nav-due-count').classList.toggle('show', due > 0);
   $('#sidebar-streak').textContent = currentStreak;
+  const sidebarGrowth = treeGrowth(currentStreak);
   $('#sidebar-tree-stage').textContent = treeStage(currentStreak).label;
+  $('#sidebar-streak-next').textContent = currentStreak === 0
+    ? 'Bắt đầu hôm nay'
+    : sidebarGrowth.target
+      ? `Còn ${sidebarGrowth.remaining} ngày · ${sidebarGrowth.target.label}`
+      : 'Đang nở rực rỡ';
+  $('#sidebar-streak-progress').style.width = `${sidebarGrowth.progress}%`;
   $('#sidebar-streak-tree').innerHTML = treeMarkup(currentStreak, true);
   const speakingToday = state.data.speakingErrors.filter((item) => (item.createdDate || localDate(item.createdAt)) === localDate()).length;
   $('#nav-speaking-count').textContent = speakingToday > 99 ? '99+' : speakingToday;
@@ -606,6 +619,7 @@ function resetForm() {
   state.selectedPos = [];
   $('#word-form').reset();
   $('#term-input').value = '';
+  $('#note-input').value = '';
   $$('.definition-input').forEach((input) => { input.value = ''; });
   $('#duplicate-hint').textContent = '';
   $('.pos-picker').classList.remove('keyboard-active');
@@ -617,6 +631,7 @@ function resetForm() {
 async function submitWord(event) {
   event.preventDefault();
   const term = $('#term-input').value.trim();
+  const note = $('#note-input').value.trim();
   const definitions = $$('.definition-input').map((input) => ({ partOfSpeech: input.dataset.definitionPos || '', definition: input.value.trim() }));
   const emptyDefinition = definitions.findIndex((item) => !item.definition);
   if (!term || emptyDefinition >= 0) {
@@ -638,12 +653,12 @@ async function submitWord(event) {
 
   if (state.editingId) {
     const word = state.data.words.find((item) => item.id === state.editingId);
-    if (word) Object.assign(word, { term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', updatedAt: new Date().toISOString() });
+    if (word) Object.assign(word, { term, note, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', updatedAt: new Date().toISOString() });
     await persist(false);
     showToast('Đã lưu thay đổi cho từ này.');
   } else {
     const createdAt = new Date().toISOString();
-    state.data.words.push(normalizeWord({ id: uid(), term, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt, createdDate: localDate(), srs: freshSrs(createdAt) }, state.data.settings.fsrsRetention));
+    state.data.words.push(normalizeWord({ id: uid(), term, note, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt, createdDate: localDate(), srs: freshSrs(createdAt) }, state.data.settings.fsrsRetention));
     await persist(false);
     showToast(`Đã thêm “${term}” vào bộ hôm nay.`);
   }
@@ -659,6 +674,7 @@ function editWord(id) {
   state.editingId = id;
   state.selectedPos = [...wordParts(word)];
   $('#term-input').value = word.term;
+  $('#note-input').value = word.note || '';
   $('.add-submit').innerHTML = 'Lưu thay đổi <span>→</span>';
   renderPosOptions();
   renderDefinitionFields(wordDefinitions(word));
@@ -1020,6 +1036,7 @@ function renderFastReviewCard(review, word, progressHeader) {
         <div><span>ĐÁP ÁN</span><div><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div></div>
         <p>Chọn theo cảm giác nhớ đầu tiên của bạn</p>
       </div>
+      ${reviewNoteMarkup(word)}
       <div class="fast-grade-grid">${gradeChoices}</div>
       <div class="fast-answer-footer"><span>Phím 1–4 để chuyển ngay sang từ tiếp theo</span>${!review.quick ? '<button class="deep-practice-link" id="practice-deep">Chưa chắc? Luyện sâu với AI →</button>' : ''}</div>
     </div>` : `
@@ -1064,6 +1081,7 @@ function renderReviewCard() {
       <div class="feedback-reveal"><span>TỪ VỪA ĐƯỢC GIẤU</span><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
       <div class="feedback-title"><div><span>✦ ${escapeHtml(providerLabel.toUpperCase())} NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${Number.isFinite(result.meaning_score) ? `${result.meaning_score}<small>/10</small>` : '—'}<em>Đúng ý</em></b><b>${Number.isFinite(result.sentence_score) ? `${result.sentence_score}<small>/10</small>` : '—'}<em>Tiếng Anh</em></b></div></div>
       <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>${result.corrected_sentence || challenge.suggested_answer ? `Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}` : 'Hãy đối chiếu lại câu bạn vừa viết.'}</small></article></div>
+      ${reviewNoteMarkup(word)}
       ${result.manual ? `<div class="manual-grade-panel"><span>TỰ ĐÁNH GIÁ MỨC ĐỘ NHỚ</span><div>${gradeChoices}</div></div>` : `<div class="feedback-footer"><span>Đánh giá từ vựng: <b>${gradeName(result.recommended_grade)}</b> · FSRS hẹn lại sau ${intervalLabel(nextReviewSchedule.interval, result.recommended_grade, nextReviewSchedule.dueAt)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>`}
       <p class="ai-disclaimer">Lịch ôn chỉ dựa trên điểm Đúng ý. Điểm Tiếng Anh được lưu để góp ý và hoàn toàn không ảnh hưởng Again / Hard / Good / Easy.</p>
     </section>` : '';
@@ -1552,6 +1570,9 @@ function bindEvents() {
   });
   $('#definition-fields').addEventListener('keydown', (event) => {
     if (event.target.matches('.definition-input') && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
+  });
+  $('#note-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
   });
   $('#definition-fields').addEventListener('focusin', () => $('.pos-picker').classList.remove('keyboard-active'));
   $('#pos-options').addEventListener('keydown', (event) => {

@@ -513,11 +513,13 @@ function createWindow() {
             && document.querySelector('[data-pos="verb"]').getAttribute('aria-pressed') === 'true';
           document.querySelector('[data-definition-pos="noun"]').value = 'cảm giác phấn khích';
           document.querySelector('[data-definition-pos="verb"]').value = 'làm ai đó phấn khích';
+          document.querySelector('#note-input').value = 'Example: The roller coaster gave us a thrill.';
           document.querySelector('[data-definition-pos="verb"]').focus();
           document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
           await new Promise(resolve => setTimeout(resolve, 250));
           const formClearedAfterSave = document.querySelector('#term-input').value === ''
             && [...document.querySelectorAll('.definition-input')].every(input => input.value === '')
+            && document.querySelector('#note-input').value === ''
             && document.activeElement?.id === 'term-input';
           document.querySelector('#term-input').value = '  THRILL  ';
           document.querySelector('#definition-input').value = 'bản trùng';
@@ -533,6 +535,9 @@ function createWindow() {
             multiplePartsVisible: document.querySelectorAll('#deck-detail .word-row .pos-label').length === 2,
             keyboardPartSelection,
             formClearedAfterSave,
+            noteHiddenBeforeAnswer: false,
+            noteRevealedAfterAnswer: false,
+            streakSummaryVisible: false,
             duplicateBlocked,
             historyVisible: false,
             heatmapCells: 0,
@@ -553,6 +558,9 @@ function createWindow() {
           };
           result.learningTreeVisible = document.querySelector('#home-streak-tree .learning-tree-svg')?.dataset.streak === '1'
             && document.querySelector('#sidebar-streak-tree .learning-tree-svg')?.dataset.stage === 'sprout';
+          result.streakSummaryVisible = document.querySelector('#sidebar-streak')?.innerText === '1'
+            && document.querySelector('#sidebar-tree-stage')?.innerText.length > 0
+            && Boolean(document.querySelector('#sidebar-streak-progress'));
           document.querySelector('#deck-detail [data-action="history"]')?.click();
           await new Promise(resolve => setTimeout(resolve, 50));
           result.historyVisible = !document.querySelector('#history-modal').classList.contains('hidden');
@@ -577,6 +585,7 @@ function createWindow() {
           document.querySelector('[data-review-date]')?.click();
           await new Promise(resolve => setTimeout(resolve, 180));
           result.hiddenRecallWord = !document.querySelector('.recall-card')?.innerText.toLocaleLowerCase().includes('thrill');
+          result.noteHiddenBeforeAnswer = !document.querySelector('.recall-card .review-note');
           result.regenerateVisible = Boolean(document.querySelector('#regenerate-challenge'));
           document.querySelector('#review-sentence').value = 'The surprise thrilled everyone.';
           document.querySelector('#ai-answer-form').requestSubmit();
@@ -584,6 +593,7 @@ function createWindow() {
           result.reviewFeedback = document.body.innerText.includes('NHẬN XÉT');
           result.fsrsFeedback = document.body.innerText.includes('FSRS hẹn lại');
           result.meaningOnlyGrade = document.body.innerText.includes('Đánh giá từ vựng: Rất dễ');
+          result.noteRevealedAfterAnswer = document.querySelector('.review-note')?.innerText.includes('The roller coaster gave us a thrill.');
           if (!${keepReviewFeedback}) {
             document.querySelector('#continue-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 150));
@@ -636,7 +646,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

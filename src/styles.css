@@ -1752,6 +1752,71 @@ body {
   background: #fff8fa;
 }
 .pos-picker.keyboard-active legend { color: #a43f63; }
+.note-field { display: block; margin-top: 22px; }
+.note-field textarea { min-height: 92px; }
+.review-note {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 11px;
+  margin: 15px 0;
+  padding: 13px 14px;
+  border: 1px solid #efdce4;
+  border-radius: 11px;
+  background: #fff8fa;
+}
+.review-note > div {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: #ae4167;
+  background: #fde9f0;
+  font-size: 11px;
+}
+.review-note section > span { color: #a43e62; font-size: 8px; font-weight: 850; letter-spacing: 1px; }
+.review-note p { margin: 4px 0 0; color: #4e4649; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+
+/* Clearer learning-streak summary in the sidebar */
+.streak-card {
+  align-items: center;
+  gap: 12px;
+  min-height: 104px;
+  padding: 14px;
+  border-color: #eadfe3;
+  background: linear-gradient(145deg, #fff 0%, #fff8fa 100%);
+}
+.streak-icon {
+  width: 64px;
+  height: 70px;
+  border: 1px solid #f1dfe6;
+  border-radius: 12px;
+}
+.streak-icon .learning-tree-svg { width: 66px; height: 66px; }
+.streak-summary { flex: 1; min-width: 0; }
+.streak-summary .streak-eyebrow {
+  margin: 0 0 2px;
+  color: #a34566;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .9px;
+}
+.streak-summary > strong { display: flex; align-items: baseline; gap: 5px; line-height: 1; }
+.streak-summary > strong b { color: #171717; font-size: 25px; font-weight: 800; }
+.streak-summary > strong small { color: #4f494b; font-size: 11px; font-weight: 700; }
+.streak-stage-row { display: grid; gap: 2px; margin-top: 6px; }
+.streak-stage-row span { margin: 0; color: #656063; font-size: 9px; font-weight: 750; }
+.streak-stage-row em {
+  overflow: hidden;
+  color: #9a8f93;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-streak-progress { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 99px; background: #f0e6ea; }
+.sidebar-streak-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: #cb527b; transition: width .35s ease; }
 
 @media (max-width: 1050px) {
   .ai-config-grid { grid-template-columns: 1fr; }
