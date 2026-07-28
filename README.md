@@ -6,8 +6,8 @@ Milim dùng GitHub Releases và `electron-updater`. Khi mã nguồn đã đượ
 `manhthang-svg/AI-vocab`, tạo một tag trùng với phiên bản trong `package.json`:
 
 ```powershell
-git tag v2.4.1
-git push origin v2.4.1
+git tag v2.5.0
+git push origin v2.5.0
 ```
 
 GitHub Actions sẽ tự đóng gói Windows và đưa bộ cài, blockmap cùng `latest.yml`

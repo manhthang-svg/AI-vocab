@@ -551,7 +551,28 @@ function renderHome() {
 }
 
 function renderPosOptions() {
-  $('#pos-options').innerHTML = POS_OPTIONS.map(([value, label]) => `<button type="button" class="pos-chip pos-${value} ${state.selectedPos.includes(value) ? 'selected' : ''}" data-pos="${value}" aria-pressed="${state.selectedPos.includes(value)}">${label}</button>`).join('');
+  $('#pos-options').innerHTML = POS_OPTIONS.map(([value, label], index) => `<button type="button" class="pos-chip pos-${value} ${state.selectedPos.includes(value) ? 'selected' : ''}" data-pos="${value}" aria-pressed="${state.selectedPos.includes(value)}" aria-keyshortcuts="${index + 1}"><kbd>${index + 1}</kbd><span>${label}</span></button>`).join('');
+}
+
+function toggleSelectedPos(value) {
+  if (!POS_OPTIONS.some(([option]) => option === value)) return;
+  state.selectedPos = state.selectedPos.includes(value)
+    ? state.selectedPos.filter((item) => item !== value)
+    : [...state.selectedPos, value];
+  renderPosOptions();
+  renderDefinitionFields();
+}
+
+function focusPosPicker(index = 0) {
+  const buttons = $$('#pos-options [data-pos]');
+  if (!buttons.length) return;
+  $('.pos-picker').classList.add('keyboard-active');
+  buttons[Math.max(0, Math.min(index, buttons.length - 1))].focus();
+}
+
+function focusFirstDefinition() {
+  $('.pos-picker').classList.remove('keyboard-active');
+  $('#definition-input')?.focus();
 }
 
 function renderDefinitionFields(initialValues = null) {
@@ -583,8 +604,11 @@ function renderRecentAdded() {
 function resetForm() {
   state.editingId = null;
   state.selectedPos = [];
+  $('#word-form').reset();
   $('#term-input').value = '';
+  $$('.definition-input').forEach((input) => { input.value = ''; });
   $('#duplicate-hint').textContent = '';
+  $('.pos-picker').classList.remove('keyboard-active');
   $('.add-submit').innerHTML = 'Thêm vào hôm nay <span>→</span>';
   renderPosOptions();
   renderDefinitionFields();
@@ -1427,10 +1451,7 @@ function bindEvents() {
 
     const pos = event.target.closest('[data-pos]');
     if (pos) {
-      const value = pos.dataset.pos;
-      state.selectedPos = state.selectedPos.includes(value) ? state.selectedPos.filter((item) => item !== value) : [...state.selectedPos, value];
-      renderPosOptions();
-      renderDefinitionFields();
+      toggleSelectedPos(pos.dataset.pos);
     }
 
     const deck = event.target.closest('[data-deck-date]');
@@ -1515,7 +1536,14 @@ function bindEvents() {
   $('#word-form').addEventListener('submit', submitWord);
   $('#speaking-form').addEventListener('submit', submitSpeakingError);
   $('#term-input').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); $('#definition-input').focus(); }
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      if (!event.currentTarget.value.trim()) {
+        showToast('Hãy nhập thuật ngữ trước nhé.', '!', true);
+        return;
+      }
+      focusPosPicker();
+    }
   });
   $('#term-input').addEventListener('input', () => {
     const value = normalizedTerm($('#term-input').value);
@@ -1524,6 +1552,47 @@ function bindEvents() {
   });
   $('#definition-fields').addEventListener('keydown', (event) => {
     if (event.target.matches('.definition-input') && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
+  });
+  $('#definition-fields').addEventListener('focusin', () => $('.pos-picker').classList.remove('keyboard-active'));
+  $('#pos-options').addEventListener('keydown', (event) => {
+    const buttons = $$('#pos-options [data-pos]');
+    const currentIndex = Math.max(0, buttons.findIndex((button) => button === document.activeElement));
+    const shortcutIndex = /^[1-8]$/.test(event.key) ? Number(event.key) - 1 : -1;
+    if (shortcutIndex >= 0 && POS_OPTIONS[shortcutIndex]) {
+      event.preventDefault();
+      toggleSelectedPos(POS_OPTIONS[shortcutIndex][0]);
+      focusPosPicker(shortcutIndex);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      focusFirstDefinition();
+      return;
+    }
+    if (event.key === ' ') {
+      event.preventDefault();
+      const value = buttons[currentIndex]?.dataset.pos;
+      if (value) {
+        toggleSelectedPos(value);
+        focusPosPicker(currentIndex);
+      }
+      return;
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      focusPosPicker((currentIndex + 1) % buttons.length);
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusPosPicker((currentIndex - 1 + buttons.length) % buttons.length);
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      state.selectedPos = [];
+      renderPosOptions();
+      renderDefinitionFields();
+      $('#term-input').focus();
+    }
   });
   $('#speaking-form').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#speaking-form').requestSubmit(); }

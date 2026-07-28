@@ -1727,6 +1727,32 @@ body {
   cursor: pointer;
 }
 
+/* Keyboard-first vocabulary entry */
+.pos-chip { display: inline-flex; align-items: center; gap: 7px; }
+.pos-chip kbd {
+  min-width: 18px;
+  padding: 1px 4px;
+  border-color: currentColor;
+  color: inherit;
+  background: rgba(255, 255, 255, .62);
+  font-size: 8px;
+  line-height: 15px;
+  text-align: center;
+  opacity: .78;
+}
+.pos-chip.selected kbd { color: #4d4145; border-color: rgba(255,255,255,.78); background: #fff; opacity: 1; }
+.pos-chip:focus-visible {
+  outline: 3px solid rgba(190, 77, 116, .18);
+  outline-offset: 3px;
+}
+.pos-picker.keyboard-active {
+  margin-inline: -12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff8fa;
+}
+.pos-picker.keyboard-active legend { color: #a43f63; }
+
 @media (max-width: 1050px) {
   .ai-config-grid { grid-template-columns: 1fr; }
   .local-ai-heading { flex-direction: column; }

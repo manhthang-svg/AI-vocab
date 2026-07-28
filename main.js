@@ -500,13 +500,25 @@ function createWindow() {
         const keepFastReview = process.env.MILIM_SMOKE_FAST_CAPTURE === '1';
         const result = await mainWindow.webContents.executeJavaScript(`(async () => {
           document.querySelector('[data-view="add"]').click();
-          document.querySelector('#term-input').value = 'thrill';
-          document.querySelector('[data-pos="noun"]').click();
-          document.querySelector('[data-pos="verb"]').click();
+          const termInput = document.querySelector('#term-input');
+          termInput.value = 'thrill';
+          termInput.focus();
+          termInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          const keyboardPartSelection = document.querySelectorAll('.definition-input').length === 2
+            && document.activeElement?.id === 'definition-input'
+            && document.querySelector('[data-pos="noun"]').getAttribute('aria-pressed') === 'true'
+            && document.querySelector('[data-pos="verb"]').getAttribute('aria-pressed') === 'true';
           document.querySelector('[data-definition-pos="noun"]').value = 'cảm giác phấn khích';
           document.querySelector('[data-definition-pos="verb"]').value = 'làm ai đó phấn khích';
-          document.querySelector('#word-form').requestSubmit();
+          document.querySelector('[data-definition-pos="verb"]').focus();
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
           await new Promise(resolve => setTimeout(resolve, 250));
+          const formClearedAfterSave = document.querySelector('#term-input').value === ''
+            && [...document.querySelectorAll('.definition-input')].every(input => input.value === '')
+            && document.activeElement?.id === 'term-input';
           document.querySelector('#term-input').value = '  THRILL  ';
           document.querySelector('#definition-input').value = 'bản trùng';
           document.querySelector('#word-form').requestSubmit();
@@ -519,6 +531,8 @@ function createWindow() {
             termVisible: document.body.innerText.includes('thrill'),
             definitionVisible: document.body.innerText.includes('cảm giác phấn khích') && document.body.innerText.includes('làm ai đó phấn khích'),
             multiplePartsVisible: document.querySelectorAll('#deck-detail .word-row .pos-label').length === 2,
+            keyboardPartSelection,
+            formClearedAfterSave,
             duplicateBlocked,
             historyVisible: false,
             heatmapCells: 0,
@@ -622,7 +636,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
