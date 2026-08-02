@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor, nativeImage, clipboard, desktopCapturer, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -21,11 +21,25 @@ let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: '
 const smokeMode = process.env.MILIM_SMOKE_MODE === '1';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
+const DEFAULT_WRITING_TYPES = {
+  task1: [
+    { id: 'task1-line', name: 'Line graph' }, { id: 'task1-bar', name: 'Bar chart' },
+    { id: 'task1-pie', name: 'Pie chart' }, { id: 'task1-table', name: 'Table' },
+    { id: 'task1-process', name: 'Process' }, { id: 'task1-map', name: 'Map' },
+    { id: 'task1-mixed', name: 'Mixed charts' }
+  ],
+  task2: [
+    { id: 'task2-opinion', name: 'Opinion' }, { id: 'task2-discussion', name: 'Discussion' },
+    { id: 'task2-advantages', name: 'Advantages / Disadvantages' },
+    { id: 'task2-problem', name: 'Problem / Solution' }, { id: 'task2-two-part', name: 'Two-part question' }
+  ]
+};
 
 const emptyData = () => ({
-  version: 4,
+  version: 5,
   words: [],
   speakingErrors: [],
+  writing: { types: DEFAULT_WRITING_TYPES, entries: [] },
   reviewSession: null,
   settings: {
     notifications: true,
@@ -432,9 +446,12 @@ function normalizeData(value) {
   const fallback = emptyData();
   if (!value || typeof value !== 'object') return fallback;
   return {
-    version: 4,
+    version: 5,
     words: Array.isArray(value.words) ? value.words : [],
     speakingErrors: Array.isArray(value.speakingErrors) ? value.speakingErrors : [],
+    writing: value.writing && typeof value.writing === 'object'
+      ? value.writing
+      : { types: DEFAULT_WRITING_TYPES, entries: [] },
     reviewSession: value.reviewSession && typeof value.reviewSession === 'object' ? value.reviewSession : null,
     settings: {
       ...fallback.settings,
@@ -552,6 +569,9 @@ function createWindow() {
             fastKeyboardGrade: false,
             weakWordEscalates: false,
             speakingSaved: false,
+            writingTypeCrud: false,
+            writingJournalSaved: false,
+            writingEntryEdited: false,
             retentionControl: false,
             learningTreeVisible: false,
             localAIControls: false
@@ -580,6 +600,44 @@ function createWindow() {
           document.querySelector('#speaking-form').requestSubmit();
           await new Promise(resolve => setTimeout(resolve, 100));
           result.speakingSaved = document.querySelectorAll('.speaking-error-card').length === 1 && document.body.innerText.includes('Yesterday I went to school.');
+          document.querySelector('[data-view="writing"]').click();
+          document.querySelector('[data-writing-task="task2"]').click();
+          document.querySelector('#writing-type-input').value = 'Custom essay';
+          document.querySelector('#save-writing-type').click();
+          await new Promise(resolve => setTimeout(resolve, 80));
+          let customType = [...document.querySelectorAll('[data-writing-type-id]')].find(node => node.innerText.includes('Custom essay'));
+          customType?.querySelector('[data-writing-type-action="edit"]').click();
+          document.querySelector('#writing-type-input').value = 'Cause and effect';
+          document.querySelector('#save-writing-type').click();
+          await new Promise(resolve => setTimeout(resolve, 80));
+          customType = [...document.querySelectorAll('[data-writing-type-id]')].find(node => node.innerText.includes('Cause and effect'));
+          const typeAddedAndEdited = Boolean(customType);
+          customType?.querySelector('[data-writing-type-action="delete"]').click();
+          document.querySelector('#confirm-accept').click();
+          await new Promise(resolve => setTimeout(resolve, 80));
+          result.writingTypeCrud = typeAddedAndEdited && ![...document.querySelectorAll('[data-writing-type-id]')].some(node => node.innerText.includes('Cause and effect'));
+          document.querySelector('#upload-writing-image').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          document.querySelector('#writing-score').value = '6.5';
+          document.querySelector('#writing-content').value = 'Some people believe that public transport should be free for everyone.';
+          document.querySelector('[data-writing-error-field="mistake"]').value = 'transport are';
+          document.querySelector('[data-writing-error-field="correction"]').value = 'transport is';
+          document.querySelector('#writing-entry-form').requestSubmit();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          result.writingJournalSaved = document.querySelectorAll('.writing-entry-card').length === 1
+            && document.querySelector('.writing-entry-card img')
+            && document.body.innerText.includes('Band 6.5')
+            && document.body.innerText.includes('1 lỗi đã ghi');
+          document.querySelector('[data-writing-entry-action="edit"]').click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+          const editLoaded = document.querySelector('#writing-content').value.includes('public transport')
+            && Boolean(document.querySelector('#writing-image-preview').src);
+          document.querySelector('#writing-score').value = '7';
+          document.querySelector('#writing-entry-form').requestSubmit();
+          await new Promise(resolve => setTimeout(resolve, 120));
+          result.writingEntryEdited = editLoaded
+            && document.querySelectorAll('.writing-entry-card').length === 1
+            && document.body.innerText.includes('Band 7');
           document.querySelector('[data-view="library"]').click();
           await new Promise(resolve => setTimeout(resolve, 50));
           document.querySelector('[data-review-date]')?.click();
@@ -646,7 +704,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingJournalSaved || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -678,6 +736,62 @@ function createWindow() {
     });
   }
 }
+
+function compressedWritingImage(image) {
+  if (!image || image.isEmpty()) throw new Error('Không tìm thấy ảnh hợp lệ.');
+  const size = image.getSize();
+  const maxWidth = 1800;
+  const maxHeight = 1400;
+  const ratio = Math.min(1, maxWidth / Math.max(1, size.width), maxHeight / Math.max(1, size.height));
+  const normalized = ratio < 1
+    ? image.resize({ width: Math.max(1, Math.round(size.width * ratio)), height: Math.max(1, Math.round(size.height * ratio)), quality: 'best' })
+    : image;
+  return `data:image/jpeg;base64,${normalized.toJPEG(86).toString('base64')}`;
+}
+
+const smokeWritingImage = 'data:image/svg+xml;charset=utf-8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="800" height="360"%3E%3Crect width="100%25" height="100%25" fill="%23fff7fa"/%3E%3Ctext x="40" y="80" font-size="28"%3EIELTS Writing prompt%3C/text%3E%3C/svg%3E';
+
+ipcMain.handle('writing:pick-image', async () => {
+  if (smokeMode) return smokeWritingImage;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn ảnh đề Writing',
+    properties: ['openFile'],
+    filters: [{ name: 'Ảnh', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }]
+  });
+  if (result.canceled || !result.filePaths[0]) return '';
+  return compressedWritingImage(nativeImage.createFromPath(result.filePaths[0]));
+});
+
+ipcMain.handle('writing:clipboard-image', () => {
+  if (smokeMode) return smokeWritingImage;
+  return compressedWritingImage(clipboard.readImage());
+});
+
+ipcMain.handle('writing:normalize-image', (_event, dataUrl) => {
+  return compressedWritingImage(nativeImage.createFromDataURL(String(dataUrl || '')));
+});
+
+ipcMain.handle('writing:capture-screen', async () => {
+  if (smokeMode) return smokeWritingImage;
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  mainWindow?.hide();
+  await new Promise((resolve) => setTimeout(resolve, 280));
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
+        height: Math.max(1, Math.round(display.size.height * display.scaleFactor))
+      }
+    });
+    const source = sources.find((item) => String(item.display_id) === String(display.id)) || sources[0];
+    if (!source) throw new Error('Không tìm thấy màn hình để chụp.');
+    return compressedWritingImage(source.thumbnail);
+  } finally {
+    mainWindow?.show();
+    mainWindow?.focus();
+  }
+});
 
 ipcMain.handle('data:load', readData);
 ipcMain.handle('data:save', (_event, value) => writeData(value));

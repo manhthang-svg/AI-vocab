@@ -9,6 +9,18 @@ const POS_OPTIONS = [
   ['other', 'Other']
 ];
 
+const WRITING_DEFAULT_TYPES = {
+  task1: [
+    ['task1-line', 'Line graph'], ['task1-bar', 'Bar chart'], ['task1-pie', 'Pie chart'],
+    ['task1-table', 'Table'], ['task1-process', 'Process'], ['task1-map', 'Map'], ['task1-mixed', 'Mixed charts']
+  ],
+  task2: [
+    ['task2-opinion', 'Opinion'], ['task2-discussion', 'Discussion'],
+    ['task2-advantages', 'Advantages / Disadvantages'], ['task2-problem', 'Problem / Solution'],
+    ['task2-two-part', 'Two-part question']
+  ]
+};
+
 const api = window.milim || {
   async loadData() {
     const saved = localStorage.getItem('milim-browser-data');
@@ -17,6 +29,10 @@ const api = window.milim || {
   async saveData(data) { localStorage.setItem('milim-browser-data', JSON.stringify(data)); return { ok: true }; },
   async exportData() { return { canceled: true }; },
   async importData() { return { canceled: true }; },
+  async pickWritingImage() { return ''; },
+  async readWritingClipboardImage() { return ''; },
+  async normalizeWritingImage(dataUrl) { return dataUrl; },
+  async captureWritingScreen() { return ''; },
   async notify() { return false; },
   async geminiStatus() { return { configured: false, model: 'gemini-2.5-flash' }; },
   async saveGeminiKey() { return { ok: true, model: 'gemini-2.5-flash' }; },
@@ -62,6 +78,11 @@ const state = {
   selectedPos: [],
   editingId: null,
   editingSpeakingId: null,
+  writingTask: 'task1',
+  editingWritingId: null,
+  editingWritingTypeId: null,
+  writingErrors: [],
+  writingImage: '',
   review: null,
   geminiConfigured: false,
   geminiModel: 'gemini-2.5-flash',
@@ -310,6 +331,46 @@ function normalizeWord(word, retention = FSRS_RETENTION_DEFAULT) {
   };
 }
 
+function defaultWritingTypes() {
+  return Object.fromEntries(Object.entries(WRITING_DEFAULT_TYPES).map(([task, items]) => [
+    task,
+    items.map(([id, name]) => ({ id, name, createdAt: new Date().toISOString() }))
+  ]));
+}
+
+function normalizeWriting(value) {
+  const source = value && typeof value === 'object' ? value : null;
+  const defaults = defaultWritingTypes();
+  const types = {};
+  ['task1', 'task2'].forEach((task) => {
+    types[task] = source?.types && Array.isArray(source.types[task])
+      ? source.types[task].map((item) => ({
+        id: String(item?.id || uid()),
+        name: String(item?.name || '').trim().slice(0, 100),
+        createdAt: item?.createdAt || new Date().toISOString()
+      })).filter((item) => item.name)
+      : defaults[task];
+  });
+  const entries = Array.isArray(source?.entries) ? source.entries.map((entry) => ({
+    id: String(entry?.id || uid()),
+    task: entry?.task === 'task2' ? 'task2' : 'task1',
+    typeId: String(entry?.typeId || ''),
+    typeName: String(entry?.typeName || '').slice(0, 100),
+    promptImage: /^data:image\//i.test(String(entry?.promptImage || '')) ? String(entry.promptImage).slice(0, 12000000) : '',
+    content: String(entry?.content || '').slice(0, 30000),
+    score: entry?.score === '' || entry?.score === null || entry?.score === undefined ? '' : String(entry.score).slice(0, 20),
+    errors: Array.isArray(entry?.errors) ? entry.errors.map((item) => ({
+      id: String(item?.id || uid()),
+      mistake: String(item?.mistake || '').slice(0, 3000),
+      correction: String(item?.correction || '').slice(0, 3000)
+    })).filter((item) => item.mistake || item.correction) : [],
+    createdAt: entry?.createdAt || new Date().toISOString(),
+    createdDate: /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.createdDate || '')) ? entry.createdDate : localDate(entry?.createdAt || new Date()),
+    updatedAt: entry?.updatedAt || null
+  })) : [];
+  return { types, entries };
+}
+
 function normalizeData(data) {
   const settings = {
     notifications: true,
@@ -329,7 +390,7 @@ function normalizeData(data) {
   settings.aiIdleMinutes = Math.max(1, Math.min(30, Number(settings.aiIdleMinutes) || 5));
   settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
   return {
-    version: 4,
+    version: 5,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
     speakingErrors: Array.isArray(data?.speakingErrors) ? data.speakingErrors.map((item) => ({
       id: item.id || uid(),
@@ -338,6 +399,7 @@ function normalizeData(data) {
       createdAt: item.createdAt || new Date().toISOString(),
       createdDate: item.createdDate || localDate(item.createdAt || new Date())
     })) : [],
+    writing: normalizeWriting(data?.writing),
     reviewSession: data?.reviewSession && typeof data.reviewSession === 'object' ? data.reviewSession : null,
     settings
   };
@@ -411,6 +473,7 @@ function activityDates() {
     word.srs.history.forEach((item) => dates.add(localDate(item.at)));
   });
   state.data.speakingErrors.forEach((item) => dates.add(item.createdDate || localDate(item.createdAt)));
+  state.data.writing.entries.forEach((item) => dates.add(item.createdDate || localDate(item.createdAt)));
   return dates;
 }
 
@@ -497,6 +560,7 @@ function navigate(view) {
   if (view === 'library') renderLibrary();
   if (view === 'review' && !state.review) renderReviewWelcome();
   if (view === 'speaking') renderSpeaking();
+  if (view === 'writing') renderWriting();
   if (view === 'stats') renderStats();
   if (view === 'settings') renderSettings();
   if (view === 'add') setTimeout(() => $('#term-input').focus(), 100);
@@ -817,6 +881,256 @@ function deleteSpeakingError(id) {
     renderSpeaking();
     showToast('Đã xóa ghi chép speaking.');
   }, 'Xóa ghi chép');
+}
+
+function writingTaskLabel(task = state.writingTask) {
+  return task === 'task2' ? 'Task 2' : 'Task 1';
+}
+
+function writingTypes(task = state.writingTask) {
+  return state.data.writing.types[task] || [];
+}
+
+function renderWritingTypes() {
+  const types = writingTypes();
+  $('#writing-types-title').textContent = `Các dạng ${writingTaskLabel()}`;
+  $('#writing-type-list').innerHTML = types.length ? types.map((type) => `
+    <div class="writing-type-chip" data-writing-type-id="${escapeHtml(type.id)}">
+      <span>${escapeHtml(type.name)}</span>
+      <button type="button" data-writing-type-action="edit" title="Đổi tên">✎</button>
+      <button type="button" data-writing-type-action="delete" title="Xóa">×</button>
+    </div>`).join('') : '<span class="writing-empty-types">Chưa có dạng bài. Hãy thêm dạng đầu tiên bên dưới.</span>';
+}
+
+function renderWritingTypeSelect(preferred = '') {
+  const select = $('#writing-type-select');
+  const current = preferred || select.value;
+  const types = writingTypes();
+  select.innerHTML = types.length
+    ? types.map((type) => `<option value="${escapeHtml(type.id)}">${escapeHtml(type.name)}</option>`).join('')
+    : '<option value="">Chưa có dạng bài</option>';
+  select.disabled = !types.length;
+  if (types.some((type) => type.id === current)) select.value = current;
+}
+
+function renderWritingErrors() {
+  if (!state.writingErrors.length) state.writingErrors = [{ id: uid(), mistake: '', correction: '' }];
+  $('#writing-errors').innerHTML = state.writingErrors.map((item, index) => `
+    <div class="writing-error-row" data-writing-error-id="${escapeHtml(item.id)}">
+      <textarea data-writing-error-field="mistake" maxlength="3000" placeholder="Lỗi sai ${index + 1}...">${escapeHtml(item.mistake)}</textarea>
+      <span class="writing-error-arrow">→</span>
+      <textarea data-writing-error-field="correction" maxlength="3000" placeholder="Cách sửa / điều cần nhớ...">${escapeHtml(item.correction)}</textarea>
+      <button type="button" class="writing-error-remove" data-writing-error-remove title="Xóa lỗi">×</button>
+    </div>`).join('');
+}
+
+function syncWritingErrorsFromDom() {
+  $$('#writing-errors [data-writing-error-id]').forEach((row) => {
+    const item = state.writingErrors.find((entry) => entry.id === row.dataset.writingErrorId);
+    if (!item) return;
+    item.mistake = row.querySelector('[data-writing-error-field="mistake"]').value;
+    item.correction = row.querySelector('[data-writing-error-field="correction"]').value;
+  });
+}
+
+function renderWritingImage() {
+  const preview = $('#writing-image-preview');
+  const empty = $('#writing-image-empty');
+  const hasImage = Boolean(state.writingImage);
+  preview.classList.toggle('hidden', !hasImage);
+  empty.classList.toggle('hidden', hasImage);
+  $('#remove-writing-image').classList.toggle('hidden', !hasImage);
+  if (hasImage) preview.src = state.writingImage;
+  else preview.removeAttribute('src');
+}
+
+function writingWordCount(value = $('#writing-content').value) {
+  return String(value || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function renderWritingJournal() {
+  const entries = state.data.writing.entries
+    .filter((entry) => entry.task === state.writingTask)
+    .sort((a, b) => new Date(b.createdDate || b.createdAt) - new Date(a.createdDate || a.createdAt));
+  $('#writing-history-caption').textContent = entries.length
+    ? `${entries.length} bài ${writingTaskLabel()} đã lưu`
+    : `Chưa có bài ${writingTaskLabel()} nào`;
+  const groups = entries.reduce((result, entry) => {
+    (result[entry.createdDate] ||= []).push(entry);
+    return result;
+  }, {});
+  $('#writing-journal').innerHTML = entries.length ? Object.keys(groups).sort().reverse().map((date) => `
+    <section class="writing-day">
+      <div class="writing-day-head"><strong>${escapeHtml(dateLabel(date, true))}</strong><span>${groups[date].length} bài</span></div>
+      ${groups[date].map((entry) => {
+        const errors = entry.errors || [];
+        const typeName = entry.typeName || 'Dạng bài đã xóa';
+        return `<article class="writing-entry-card" data-writing-entry-id="${escapeHtml(entry.id)}">
+          <div class="writing-entry-thumb">${entry.promptImage ? `<img loading="lazy" src="${escapeHtml(entry.promptImage)}" alt="Ảnh đề ${escapeHtml(typeName)}"/>` : '<span>▧</span>'}</div>
+          <div class="writing-entry-body">
+            <div class="writing-entry-top"><div><span>${escapeHtml(writingTaskLabel(entry.task).toUpperCase())}</span><h3>${escapeHtml(typeName)}</h3></div>${entry.score !== '' ? `<b class="writing-entry-score">Band ${escapeHtml(entry.score)}</b>` : ''}</div>
+            <p class="writing-entry-excerpt">${escapeHtml(entry.content)}</p>
+            <div class="writing-entry-meta"><span>${writingWordCount(entry.content)} từ</span><span>${errors.length} lỗi đã ghi</span><span>${escapeHtml(entry.createdDate)}</span></div>
+            <div class="writing-entry-actions">
+              <details><summary>Xem toàn bộ bài & lỗi ↓</summary><div class="writing-entry-detail"><p>${escapeHtml(entry.content)}</p>${errors.length ? `<div class="writing-entry-errors">${errors.map((item) => `<div class="writing-entry-error"><p>${escapeHtml(item.mistake)}</p><b>→</b><p>${escapeHtml(item.correction)}</p></div>`).join('')}</div>` : ''}</div></details>
+              <button type="button" data-writing-entry-action="edit">Chỉnh sửa</button><button type="button" data-writing-entry-action="delete">Xóa</button>
+            </div>
+          </div>
+        </article>`;
+      }).join('')}
+    </section>`).join('') : emptyState('Nhật ký Writing đang trống', `Bài ${writingTaskLabel()} đầu tiên của bạn sẽ xuất hiện ở đây.`);
+}
+
+function renderWriting() {
+  $$('[data-writing-task]').forEach((button) => button.classList.toggle('active', button.dataset.writingTask === state.writingTask));
+  renderWritingTypes();
+  renderWritingTypeSelect();
+  renderWritingErrors();
+  renderWritingImage();
+  renderWritingJournal();
+  $('#writing-form-eyebrow').textContent = `${writingTaskLabel().toUpperCase()} · ${state.editingWritingId ? 'CHỈNH SỬA' : 'BÀI MỚI'}`;
+  $('#writing-form-title').textContent = state.editingWritingId ? 'Chỉnh sửa bài Writing' : 'Ghi một bài Writing';
+  $('#save-writing-entry').textContent = state.editingWritingId ? 'Lưu thay đổi' : 'Lưu vào nhật ký';
+  $('#cancel-writing-edit').classList.toggle('hidden', !state.editingWritingId);
+  if (!$('#writing-date').value) $('#writing-date').value = localDate();
+  $('#writing-word-count').textContent = `${writingWordCount()} từ`;
+  renderGlobal();
+}
+
+function resetWritingForm(render = true) {
+  state.editingWritingId = null;
+  state.writingErrors = [{ id: uid(), mistake: '', correction: '' }];
+  state.writingImage = '';
+  $('#writing-entry-form').reset();
+  $('#writing-date').value = localDate();
+  if (render) renderWriting();
+}
+
+async function saveWritingType() {
+  const input = $('#writing-type-input');
+  const name = input.value.trim();
+  if (!name) { showToast('Hãy nhập tên dạng bài.', '!', true); input.focus(); return; }
+  const types = writingTypes();
+  const duplicate = types.some((type) => type.name.toLocaleLowerCase('vi') === name.toLocaleLowerCase('vi') && type.id !== state.editingWritingTypeId);
+  if (duplicate) { showToast('Dạng bài này đã tồn tại.', '!', true); return; }
+  if (state.editingWritingTypeId) {
+    const type = types.find((item) => item.id === state.editingWritingTypeId);
+    if (type) {
+      type.name = name;
+      state.data.writing.entries.filter((entry) => entry.typeId === type.id).forEach((entry) => { entry.typeName = name; });
+    }
+  } else {
+    types.push({ id: uid(), name, createdAt: new Date().toISOString() });
+  }
+  state.editingWritingTypeId = null;
+  input.value = '';
+  $('#save-writing-type').textContent = 'Thêm dạng bài';
+  $('#cancel-writing-type').classList.add('hidden');
+  await persist(false);
+  renderWriting();
+  showToast('Đã lưu dạng bài Writing.');
+}
+
+function editWritingType(id) {
+  const type = writingTypes().find((item) => item.id === id);
+  if (!type) return;
+  state.editingWritingTypeId = id;
+  $('#writing-type-input').value = type.name;
+  $('#save-writing-type').textContent = 'Lưu tên mới';
+  $('#cancel-writing-type').classList.remove('hidden');
+  $('#writing-type-input').focus();
+}
+
+function deleteWritingType(id) {
+  const type = writingTypes().find((item) => item.id === id);
+  if (!type) return;
+  askConfirm('Xóa dạng bài này?', `Các bài cũ thuộc “${type.name}” vẫn được giữ trong lịch sử.`, async () => {
+    state.data.writing.types[state.writingTask] = writingTypes().filter((item) => item.id !== id);
+    state.data.writing.entries.filter((entry) => entry.typeId === id).forEach((entry) => { entry.typeId = ''; });
+    await persist(false);
+    closeConfirm();
+    renderWriting();
+    showToast('Đã xóa dạng bài.');
+  }, 'Xóa dạng bài');
+}
+
+async function setWritingImage(loader, button) {
+  const original = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = 'Đang xử lý…'; }
+  try {
+    const image = await loader();
+    if (image) {
+      state.writingImage = image;
+      renderWritingImage();
+      showToast('Đã thêm ảnh đề bài.');
+    }
+  } catch (error) {
+    const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+    showToast(message || 'Không thể đọc ảnh.', '!', true);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = original; }
+  }
+}
+
+async function submitWritingEntry(event) {
+  event.preventDefault();
+  syncWritingErrorsFromDom();
+  const content = $('#writing-content').value.trim();
+  const typeId = $('#writing-type-select').value;
+  const type = writingTypes().find((item) => item.id === typeId);
+  if (!type) { showToast('Hãy thêm hoặc chọn một dạng bài.', '!', true); $('#writing-type-input').focus(); return; }
+  if (!content) { showToast('Hãy nhập nội dung bài làm.', '!', true); $('#writing-content').focus(); return; }
+  const score = $('#writing-score').value;
+  if (score !== '' && (Number(score) < 0 || Number(score) > 9)) { showToast('Điểm IELTS cần nằm trong khoảng 0–9.', '!', true); return; }
+  const now = new Date().toISOString();
+  const payload = {
+    task: state.writingTask,
+    typeId,
+    typeName: type.name,
+    promptImage: state.writingImage,
+    content,
+    score,
+    errors: state.writingErrors.map((item) => ({ id: item.id, mistake: item.mistake.trim(), correction: item.correction.trim() })).filter((item) => item.mistake || item.correction),
+    createdDate: $('#writing-date').value || localDate(),
+    updatedAt: now
+  };
+  if (state.editingWritingId) {
+    const entry = state.data.writing.entries.find((item) => item.id === state.editingWritingId);
+    if (entry) Object.assign(entry, payload);
+  } else {
+    state.data.writing.entries.push({ id: uid(), createdAt: now, ...payload });
+  }
+  await persist(false);
+  showToast(state.editingWritingId ? 'Đã lưu thay đổi bài Writing.' : 'Đã lưu bài vào nhật ký Writing.');
+  resetWritingForm();
+}
+
+function editWritingEntry(id) {
+  const entry = state.data.writing.entries.find((item) => item.id === id);
+  if (!entry) return;
+  state.writingTask = entry.task;
+  state.editingWritingId = id;
+  state.writingErrors = entry.errors.length ? entry.errors.map((item) => ({ ...item })) : [{ id: uid(), mistake: '', correction: '' }];
+  state.writingImage = entry.promptImage || '';
+  renderWriting();
+  renderWritingTypeSelect(entry.typeId);
+  $('#writing-date').value = entry.createdDate;
+  $('#writing-score').value = entry.score;
+  $('#writing-content').value = entry.content;
+  $('#writing-word-count').textContent = `${writingWordCount(entry.content)} từ`;
+  $('.content').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function deleteWritingEntry(id) {
+  const entry = state.data.writing.entries.find((item) => item.id === id);
+  if (!entry) return;
+  askConfirm('Xóa bài Writing này?', 'Ảnh đề, nội dung và các lỗi đã ghi của bài này sẽ bị xóa khỏi nhật ký.', async () => {
+    state.data.writing.entries = state.data.writing.entries.filter((item) => item.id !== id);
+    await persist(false);
+    closeConfirm();
+    renderWriting();
+    showToast('Đã xóa bài Writing.');
+  }, 'Xóa bài');
 }
 
 function aiProviderName(provider) {
@@ -1501,6 +1815,51 @@ function bindEvents() {
     const speakingAction = event.target.closest('[data-speaking-action]');
     if (speakingRow && speakingAction?.dataset.speakingAction === 'delete') deleteSpeakingError(speakingRow.dataset.speakingId);
 
+    const writingTask = event.target.closest('[data-writing-task]');
+    if (writingTask && writingTask.dataset.writingTask !== state.writingTask) {
+      state.writingTask = writingTask.dataset.writingTask;
+      state.editingWritingTypeId = null;
+      resetWritingForm();
+    }
+    const writingTypeChip = event.target.closest('[data-writing-type-id]');
+    const writingTypeAction = event.target.closest('[data-writing-type-action]');
+    if (writingTypeChip && writingTypeAction) {
+      if (writingTypeAction.dataset.writingTypeAction === 'edit') editWritingType(writingTypeChip.dataset.writingTypeId);
+      if (writingTypeAction.dataset.writingTypeAction === 'delete') deleteWritingType(writingTypeChip.dataset.writingTypeId);
+    }
+    const writingEntry = event.target.closest('[data-writing-entry-id]');
+    const writingEntryAction = event.target.closest('[data-writing-entry-action]');
+    if (writingEntry && writingEntryAction) {
+      if (writingEntryAction.dataset.writingEntryAction === 'edit') editWritingEntry(writingEntry.dataset.writingEntryId);
+      if (writingEntryAction.dataset.writingEntryAction === 'delete') deleteWritingEntry(writingEntry.dataset.writingEntryId);
+    }
+    if (event.target.closest('#new-writing-entry')) { resetWritingForm(); $('#writing-content').focus(); }
+    if (event.target.closest('#save-writing-type')) saveWritingType();
+    if (event.target.closest('#cancel-writing-type')) {
+      state.editingWritingTypeId = null;
+      $('#writing-type-input').value = '';
+      $('#save-writing-type').textContent = 'Thêm dạng bài';
+      $('#cancel-writing-type').classList.add('hidden');
+    }
+    if (event.target.closest('#cancel-writing-edit')) resetWritingForm();
+    if (event.target.closest('#add-writing-error')) {
+      syncWritingErrorsFromDom();
+      state.writingErrors.push({ id: uid(), mistake: '', correction: '' });
+      renderWritingErrors();
+      $$('#writing-errors [data-writing-error-field="mistake"]').at(-1)?.focus();
+    }
+    const writingErrorRemove = event.target.closest('[data-writing-error-remove]');
+    if (writingErrorRemove) {
+      syncWritingErrorsFromDom();
+      const row = writingErrorRemove.closest('[data-writing-error-id]');
+      state.writingErrors = state.writingErrors.filter((item) => item.id !== row.dataset.writingErrorId);
+      renderWritingErrors();
+    }
+    if (event.target.closest('#upload-writing-image')) setWritingImage(() => api.pickWritingImage(), event.target.closest('button'));
+    if (event.target.closest('#paste-writing-image')) setWritingImage(() => api.readWritingClipboardImage(), event.target.closest('button'));
+    if (event.target.closest('#capture-writing-screen')) setWritingImage(() => api.captureWritingScreen(), event.target.closest('button'));
+    if (event.target.closest('#remove-writing-image')) { state.writingImage = ''; renderWritingImage(); }
+
     if (event.target.closest('#start-due-review')) startReview(dueWords(), 'Ôn nhanh từ đến hạn', { mode: 'fast' });
     if (event.target.closest('#start-deep-review')) startReview(dueWords(), 'Ôn sâu bằng AI', { mode: 'deep' });
     if (event.target.closest('#start-overdue-review')) startReview(overdueWords(), 'Ôn nhanh từ quá hạn', { mode: 'fast' });
@@ -1553,6 +1912,34 @@ function bindEvents() {
   $('#home-notification').addEventListener('click', () => navigate('settings'));
   $('#word-form').addEventListener('submit', submitWord);
   $('#speaking-form').addEventListener('submit', submitSpeakingError);
+  $('#writing-entry-form').addEventListener('submit', submitWritingEntry);
+  $('#writing-content').addEventListener('input', (event) => { $('#writing-word-count').textContent = `${writingWordCount(event.target.value)} từ`; });
+  $('#writing-type-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); saveWritingType(); } });
+  $('#writing-errors').addEventListener('input', syncWritingErrorsFromDom);
+  $('#writing-image-drop').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('#upload-writing-image').click(); }
+  });
+  $('#writing-image-drop').addEventListener('dragover', (event) => { event.preventDefault(); event.currentTarget.classList.add('dragging'); });
+  $('#writing-image-drop').addEventListener('dragleave', (event) => event.currentTarget.classList.remove('dragging'));
+  $('#writing-image-drop').addEventListener('drop', (event) => {
+    event.preventDefault();
+    event.currentTarget.classList.remove('dragging');
+    const file = [...event.dataTransfer.files].find((item) => item.type.startsWith('image/'));
+    if (!file) { showToast('Hãy thả một tệp ảnh hợp lệ.', '!', true); return; }
+    const reader = new FileReader();
+    reader.onload = () => setWritingImage(() => api.normalizeWritingImage(reader.result));
+    reader.readAsDataURL(file);
+  });
+  document.addEventListener('paste', (event) => {
+    if (state.view !== 'writing') return;
+    const item = [...(event.clipboardData?.items || [])].find((entry) => entry.type.startsWith('image/'));
+    if (!item) return;
+    event.preventDefault();
+    const file = item.getAsFile();
+    const reader = new FileReader();
+    reader.onload = () => setWritingImage(() => api.normalizeWritingImage(reader.result));
+    reader.readAsDataURL(file);
+  });
   $('#term-input').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();

@@ -45,6 +45,10 @@
             <svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8"/></svg>
             <span>Speaking Errors</span><b class="due-badge" id="nav-speaking-count">0</b>
           </button>
+          <button class="nav-item" data-view="writing">
+            <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/></svg>
+            <span>Writing Journal</span>
+          </button>
           <button class="nav-item" data-view="stats">
             <svg viewBox="0 0 24 24"><path d="M5 20v-6h3v6zm6 0V7h3v13zm6 0V11h3v9"/></svg>
             <span>Thống kê</span>
@@ -131,6 +135,39 @@
           <div class="speaking-journal" id="speaking-journal"></div>
         </section>
 
+        <section class="view" id="view-writing">
+          <div class="page-heading writing-heading"><div><p class="eyebrow">IELTS WRITING JOURNAL</p><h1>Nhật ký luyện viết</h1><p>Lưu đề, bài làm, điểm tự đánh giá và từng lỗi sai — hoàn toàn offline.</p></div><button class="primary-btn" id="new-writing-entry">+ Bài viết mới</button></div>
+          <div class="writing-task-tabs" role="tablist"><button class="active" data-writing-task="task1">Task 1</button><button data-writing-task="task2">Task 2</button></div>
+
+          <section class="writing-types-card card">
+            <div class="writing-section-head"><div><span>DẠNG BÀI</span><h2 id="writing-types-title">Các dạng Task 1</h2></div><p>Thêm, đổi tên hoặc xóa theo cách bạn phân loại bài.</p></div>
+            <div class="writing-type-list" id="writing-type-list"></div>
+            <div class="writing-type-editor"><input id="writing-type-input" maxlength="100" placeholder="Tên dạng bài mới..."/><button class="soft-btn" id="save-writing-type">Thêm dạng bài</button><button class="text-btn hidden" id="cancel-writing-type">Hủy</button></div>
+          </section>
+
+          <form class="writing-entry-form card" id="writing-entry-form">
+            <div class="writing-form-head"><div><span id="writing-form-eyebrow">TASK 1 · BÀI MỚI</span><h2 id="writing-form-title">Ghi một bài Writing</h2></div><button type="button" class="text-btn hidden" id="cancel-writing-edit">Hủy chỉnh sửa</button></div>
+            <div class="writing-meta-grid">
+              <label><span>DẠNG BÀI</span><select id="writing-type-select"></select></label>
+              <label><span>NGÀY LÀM</span><input id="writing-date" type="date"/></label>
+              <label><span>ĐIỂM TỰ NHẬP</span><input id="writing-score" type="number" min="0" max="9" step="0.5" placeholder="e.g. 6.5"/></label>
+            </div>
+            <div class="writing-image-field">
+              <div class="writing-field-label"><span>ẢNH ĐỀ BÀI</span><small>Có thể chụp, dán Ctrl+V hoặc tải ảnh</small></div>
+              <div class="writing-image-drop" id="writing-image-drop" tabindex="0">
+                <div class="writing-image-empty" id="writing-image-empty"><b>▧</b><strong>Chưa có ảnh đề bài</strong><span>Ảnh sẽ được nén và lưu cùng bản sao lưu của Milim.</span></div>
+                <img class="hidden" id="writing-image-preview" alt="Ảnh đề Writing"/>
+              </div>
+              <div class="writing-image-actions"><button type="button" class="soft-btn" id="capture-writing-screen">Chụp màn hình</button><button type="button" class="soft-btn" id="paste-writing-image">Dán từ clipboard</button><button type="button" class="soft-btn" id="upload-writing-image">Tải ảnh lên</button><button type="button" class="text-btn hidden" id="remove-writing-image">Xóa ảnh</button></div>
+            </div>
+            <label class="field writing-content-field"><span>NỘI DUNG BÀI LÀM</span><textarea id="writing-content" rows="13" maxlength="30000" placeholder="Nhập bài Writing của bạn..."></textarea><small id="writing-word-count">0 từ</small></label>
+            <section class="writing-errors-section"><div class="writing-section-head"><div><span>SỬA LỖI SAI</span><h3>Những điều cần nhớ lần sau</h3></div><button type="button" class="soft-btn" id="add-writing-error">+ Thêm lỗi</button></div><div class="writing-errors" id="writing-errors"></div></section>
+            <div class="writing-submit-row"><p>Dữ liệu và ảnh được lưu cục bộ trên máy.</p><button class="primary-btn" type="submit" id="save-writing-entry">Lưu vào nhật ký</button></div>
+          </form>
+
+          <section class="writing-history-section"><div class="section-heading compact"><div><h2>Lịch sử làm bài</h2><p id="writing-history-caption"></p></div></div><div class="writing-journal" id="writing-journal"></div></section>
+        </section>
+
         <section class="view" id="view-stats">
           <div class="page-heading"><div><p class="eyebrow">TIẾN BỘ</p><h1>Những bước nhỏ của bạn</h1><p>Không cần vội — đều đặn đã là một thành tựu rồi.</p></div></div>
           <div class="stat-cards" id="stat-cards"></div>
@@ -163,7 +200,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v2.6.0</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.0.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
