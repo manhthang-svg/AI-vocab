@@ -1820,10 +1820,11 @@ body {
 
 /* Writing journal */
 .writing-heading { align-items: flex-end; }
+.writing-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .writing-task-tabs { display: inline-flex; gap: 4px; margin-bottom: 15px; padding: 4px; border: 1px solid #e2e2e2; border-radius: 12px; background: #f3f3f3; }
 .writing-task-tabs button { min-width: 112px; padding: 10px 18px; border: 0; border-radius: 9px; color: #777; background: transparent; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
 .writing-task-tabs button.active { color: #171717; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-.writing-types-card, .writing-entry-form { margin-bottom: 18px; padding: 24px; }
+.writing-types-card, .writing-entry-form { margin-bottom: 18px; padding: 22px; }
 .writing-section-head, .writing-form-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .writing-section-head span, .writing-form-head span, .writing-meta-grid label > span, .writing-field-label > span { color: #a63e63; font-size: 9px; font-weight: 850; letter-spacing: 1px; }
 .writing-section-head h2, .writing-form-head h2, .writing-section-head h3 { margin: 4px 0 0; color: #171717; font-size: 17px; }
@@ -1837,14 +1838,14 @@ body {
 .writing-type-editor { display: flex; gap: 8px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee7e9; }
 .writing-type-editor input { flex: 1; max-width: 420px; padding: 10px 12px; border: 1px solid #d8d8d8; border-radius: 9px; outline: 0; font: inherit; font-size: 11px; }
 .writing-type-editor input:focus { border-color: #b76c86; box-shadow: 0 0 0 3px rgba(183,108,134,.09); }
-.writing-entry-form { display: grid; gap: 22px; }
+.writing-entry-form { display: grid; max-width: 960px; gap: 18px; margin-right: auto; margin-left: auto; }
 .writing-meta-grid { display: grid; grid-template-columns: 1.5fr 1fr .7fr; gap: 11px; }
 .writing-meta-grid label { display: grid; gap: 7px; }
 .writing-meta-grid select, .writing-meta-grid input { width: 100%; height: 43px; padding: 0 12px; border: 1px solid #d7d7d7; border-radius: 9px; color: #252525; background: #fff; outline: 0; font: inherit; font-size: 11px; }
 .writing-meta-grid select:focus, .writing-meta-grid input:focus { border-color: #a97084; box-shadow: 0 0 0 3px rgba(169,112,132,.08); }
 .writing-field-label { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 8px; }
 .writing-field-label small { color: #8d8d8d; font-size: 9px; }
-.writing-image-drop { display: grid; place-items: center; min-height: 230px; overflow: hidden; border: 1px dashed #d8c9cf; border-radius: 13px; background: #fff9fb; outline: 0; }
+.writing-image-drop { display: grid; place-items: center; min-height: 150px; overflow: hidden; border: 1px dashed #d8c9cf; border-radius: 13px; background: #fff9fb; outline: 0; }
 .writing-image-drop:focus-visible { border-color: #b75a7b; box-shadow: 0 0 0 3px rgba(183,90,123,.1); }
 .writing-image-empty { display: grid; place-items: center; gap: 5px; color: #82777b; text-align: center; }
 .writing-image-empty b { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: #b54b70; background: #fdeaf1; font-size: 17px; }
@@ -1853,10 +1854,11 @@ body {
 .writing-image-drop img { display: block; width: 100%; max-height: 520px; object-fit: contain; background: #f7f7f7; }
 .writing-image-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
 .writing-image-actions #remove-writing-image { margin-left: auto; color: #a24a58; }
-.writing-content-field textarea { min-height: 300px; font-family: inherit; font-size: 14px; line-height: 1.75; }
+.writing-content-field textarea { min-height: 250px; font-family: inherit; font-size: 14px; line-height: 1.75; }
 .writing-content-field small { height: auto; text-align: right; }
 .writing-errors-section { padding-top: 20px; border-top: 1px solid #eee7e9; }
 .writing-errors { display: grid; gap: 9px; margin-top: 13px; }
+.writing-errors-empty { padding: 16px; border: 1px dashed #e2d8dc; border-radius: 10px; color: #91878a; background: #fcfafb; font-size: 10px; text-align: center; }
 .writing-error-row { display: grid; grid-template-columns: 1fr 28px 1fr 30px; gap: 9px; align-items: center; }
 .writing-error-row textarea { width: 100%; min-height: 82px; padding: 12px; border: 1px solid #ddd5d8; border-radius: 9px; resize: vertical; outline: 0; font: inherit; font-size: 11px; line-height: 1.5; }
 .writing-error-row textarea:focus { border-color: #ad6a81; box-shadow: 0 0 0 3px rgba(173,106,129,.07); }

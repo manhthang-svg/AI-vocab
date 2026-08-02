@@ -81,6 +81,8 @@ const state = {
   writingTask: 'task1',
   editingWritingId: null,
   editingWritingTypeId: null,
+  writingEditorOpen: false,
+  writingManageTypesOpen: false,
   writingErrors: [],
   writingImage: '',
   review: null,
@@ -914,8 +916,12 @@ function renderWritingTypeSelect(preferred = '') {
 }
 
 function renderWritingErrors() {
-  if (!state.writingErrors.length) state.writingErrors = [{ id: uid(), mistake: '', correction: '' }];
-  $('#writing-errors').innerHTML = state.writingErrors.map((item, index) => `
+  const container = $('#writing-errors');
+  if (!state.writingErrors.length) {
+    container.innerHTML = '<div class="writing-errors-empty">Chưa có lỗi nào. Bạn có thể thêm sau khi tự chấm bài.</div>';
+    return;
+  }
+  container.innerHTML = state.writingErrors.map((item, index) => `
     <div class="writing-error-row" data-writing-error-id="${escapeHtml(item.id)}">
       <textarea data-writing-error-field="mistake" maxlength="3000" placeholder="Lỗi sai ${index + 1}...">${escapeHtml(item.mistake)}</textarea>
       <span class="writing-error-arrow">→</span>
@@ -983,6 +989,12 @@ function renderWritingJournal() {
 
 function renderWriting() {
   $$('[data-writing-task]').forEach((button) => button.classList.toggle('active', button.dataset.writingTask === state.writingTask));
+  $('#writing-types-card').classList.toggle('hidden', !state.writingManageTypesOpen);
+  $('#writing-entry-form').classList.toggle('hidden', !state.writingEditorOpen);
+  $('#writing-history-section').classList.toggle('hidden', state.writingManageTypesOpen || state.writingEditorOpen);
+  $('#manage-writing-types').classList.toggle('hidden', state.writingEditorOpen);
+  $('#manage-writing-types').textContent = state.writingManageTypesOpen ? 'Đóng quản lý' : 'Quản lý dạng bài';
+  $('#new-writing-entry').classList.toggle('hidden', state.writingEditorOpen);
   renderWritingTypes();
   renderWritingTypeSelect();
   renderWritingErrors();
@@ -991,7 +1003,8 @@ function renderWriting() {
   $('#writing-form-eyebrow').textContent = `${writingTaskLabel().toUpperCase()} · ${state.editingWritingId ? 'CHỈNH SỬA' : 'BÀI MỚI'}`;
   $('#writing-form-title').textContent = state.editingWritingId ? 'Chỉnh sửa bài Writing' : 'Ghi một bài Writing';
   $('#save-writing-entry').textContent = state.editingWritingId ? 'Lưu thay đổi' : 'Lưu vào nhật ký';
-  $('#cancel-writing-edit').classList.toggle('hidden', !state.editingWritingId);
+  $('#cancel-writing-edit').classList.toggle('hidden', !state.writingEditorOpen);
+  $('#cancel-writing-edit').textContent = state.editingWritingId ? 'Hủy chỉnh sửa' : 'Đóng';
   if (!$('#writing-date').value) $('#writing-date').value = localDate();
   $('#writing-word-count').textContent = `${writingWordCount()} từ`;
   renderGlobal();
@@ -999,7 +1012,9 @@ function renderWriting() {
 
 function resetWritingForm(render = true) {
   state.editingWritingId = null;
-  state.writingErrors = [{ id: uid(), mistake: '', correction: '' }];
+  state.writingEditorOpen = false;
+  state.writingManageTypesOpen = false;
+  state.writingErrors = [];
   state.writingImage = '';
   $('#writing-entry-form').reset();
   $('#writing-date').value = localDate();
@@ -1110,7 +1125,9 @@ function editWritingEntry(id) {
   if (!entry) return;
   state.writingTask = entry.task;
   state.editingWritingId = id;
-  state.writingErrors = entry.errors.length ? entry.errors.map((item) => ({ ...item })) : [{ id: uid(), mistake: '', correction: '' }];
+  state.writingEditorOpen = true;
+  state.writingManageTypesOpen = false;
+  state.writingErrors = entry.errors.length ? entry.errors.map((item) => ({ ...item })) : [];
   state.writingImage = entry.promptImage || '';
   renderWriting();
   renderWritingTypeSelect(entry.typeId);
@@ -1833,7 +1850,18 @@ function bindEvents() {
       if (writingEntryAction.dataset.writingEntryAction === 'edit') editWritingEntry(writingEntry.dataset.writingEntryId);
       if (writingEntryAction.dataset.writingEntryAction === 'delete') deleteWritingEntry(writingEntry.dataset.writingEntryId);
     }
-    if (event.target.closest('#new-writing-entry')) { resetWritingForm(); $('#writing-content').focus(); }
+    if (event.target.closest('#new-writing-entry')) {
+      resetWritingForm(false);
+      state.writingEditorOpen = true;
+      renderWriting();
+      $('#writing-content').focus();
+    }
+    if (event.target.closest('#manage-writing-types')) {
+      state.writingManageTypesOpen = !state.writingManageTypesOpen;
+      state.editingWritingTypeId = null;
+      $('#writing-type-input').value = '';
+      renderWriting();
+    }
     if (event.target.closest('#save-writing-type')) saveWritingType();
     if (event.target.closest('#cancel-writing-type')) {
       state.editingWritingTypeId = null;

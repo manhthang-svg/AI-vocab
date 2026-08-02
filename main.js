@@ -570,6 +570,7 @@ function createWindow() {
             weakWordEscalates: false,
             speakingSaved: false,
             writingTypeCrud: false,
+            writingMinimalLayout: false,
             writingJournalSaved: false,
             writingEntryEdited: false,
             retentionControl: false,
@@ -601,7 +602,14 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 100));
           result.speakingSaved = document.querySelectorAll('.speaking-error-card').length === 1 && document.body.innerText.includes('Yesterday I went to school.');
           document.querySelector('[data-view="writing"]').click();
+          result.writingMinimalLayout = document.querySelector('#writing-entry-form').classList.contains('hidden')
+            && document.querySelector('#writing-types-card').classList.contains('hidden')
+            && !document.querySelector('#writing-history-section').classList.contains('hidden');
           document.querySelector('[data-writing-task="task2"]').click();
+          document.querySelector('#manage-writing-types').click();
+          result.writingMinimalLayout = result.writingMinimalLayout
+            && !document.querySelector('#writing-types-card').classList.contains('hidden')
+            && document.querySelector('#writing-history-section').classList.contains('hidden');
           document.querySelector('#writing-type-input').value = 'Custom essay';
           document.querySelector('#save-writing-type').click();
           await new Promise(resolve => setTimeout(resolve, 80));
@@ -616,10 +624,16 @@ function createWindow() {
           document.querySelector('#confirm-accept').click();
           await new Promise(resolve => setTimeout(resolve, 80));
           result.writingTypeCrud = typeAddedAndEdited && ![...document.querySelectorAll('[data-writing-type-id]')].some(node => node.innerText.includes('Cause and effect'));
+          document.querySelector('#new-writing-entry').click();
+          result.writingMinimalLayout = result.writingMinimalLayout
+            && !document.querySelector('#writing-entry-form').classList.contains('hidden')
+            && document.querySelector('#writing-types-card').classList.contains('hidden')
+            && document.querySelector('#writing-history-section').classList.contains('hidden');
           document.querySelector('#upload-writing-image').click();
           await new Promise(resolve => setTimeout(resolve, 100));
           document.querySelector('#writing-score').value = '6.5';
           document.querySelector('#writing-content').value = 'Some people believe that public transport should be free for everyone.';
+          document.querySelector('#add-writing-error').click();
           document.querySelector('[data-writing-error-field="mistake"]').value = 'transport are';
           document.querySelector('[data-writing-error-field="correction"]').value = 'transport is';
           document.querySelector('#writing-entry-form').requestSubmit();
@@ -704,7 +718,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingJournalSaved || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
