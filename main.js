@@ -572,6 +572,7 @@ function createWindow() {
             writingTypeCrud: false,
             writingMinimalLayout: false,
             writingJournalSaved: false,
+            writingJournalDisclosure: false,
             writingEntryEdited: false,
             retentionControl: false,
             learningTreeVisible: false,
@@ -640,8 +641,13 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 150));
           result.writingJournalSaved = document.querySelectorAll('.writing-entry-card').length === 1
             && document.querySelector('.writing-entry-card img')
-            && document.body.innerText.includes('Band 6.5')
-            && document.body.innerText.includes('1 lỗi đã ghi');
+            && document.body.innerText.includes('6.5')
+            && document.body.innerText.includes('LỖI ĐÃ GHI')
+            && document.body.innerText.includes('SỐ TỪ');
+          const writingCard = document.querySelector('.writing-entry-card');
+          const writingWasCollapsed = !writingCard.open;
+          writingCard.querySelector('.writing-entry-summary').click();
+          result.writingJournalDisclosure = writingWasCollapsed && writingCard.open;
           document.querySelector('[data-writing-entry-action="edit"]').click();
           await new Promise(resolve => setTimeout(resolve, 50));
           const editLoaded = document.querySelector('#writing-content').value.includes('public transport')
@@ -651,7 +657,7 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 120));
           result.writingEntryEdited = editLoaded
             && document.querySelectorAll('.writing-entry-card').length === 1
-            && document.body.innerText.includes('Band 7');
+            && document.body.innerText.includes('7');
           document.querySelector('[data-view="library"]').click();
           await new Promise(resolve => setTimeout(resolve, 50));
           document.querySelector('[data-review-date]')?.click();
@@ -718,7 +724,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -727,7 +733,7 @@ function createWindow() {
       }
       const captureView = process.env.MILIM_CAPTURE_VIEW;
       if (captureView) {
-        await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-view="${captureView}"]')?.click()`);
+        await mainWindow.webContents.executeJavaScript(`navigate(${JSON.stringify(captureView)})`);
         await new Promise((resolve) => setTimeout(resolve, 350));
       }
       const captureTreeDays = Math.max(0, Math.floor(Number(process.env.MILIM_CAPTURE_TREE_DAYS) || 0));

@@ -967,22 +967,27 @@ function renderWritingJournal() {
   }, {});
   $('#writing-journal').innerHTML = entries.length ? Object.keys(groups).sort().reverse().map((date) => `
     <section class="writing-day">
-      <div class="writing-day-head"><strong>${escapeHtml(dateLabel(date, true))}</strong><span>${groups[date].length} bài</span></div>
       ${groups[date].map((entry) => {
         const errors = entry.errors || [];
         const typeName = entry.typeName || 'Dạng bài đã xóa';
-        return `<article class="writing-entry-card" data-writing-entry-id="${escapeHtml(entry.id)}">
-          <div class="writing-entry-thumb">${entry.promptImage ? `<img loading="lazy" src="${escapeHtml(entry.promptImage)}" alt="Ảnh đề ${escapeHtml(typeName)}"/>` : '<span>▧</span>'}</div>
-          <div class="writing-entry-body">
-            <div class="writing-entry-top"><div><span>${escapeHtml(writingTaskLabel(entry.task).toUpperCase())}</span><h3>${escapeHtml(typeName)}</h3></div>${entry.score !== '' ? `<b class="writing-entry-score">Band ${escapeHtml(entry.score)}</b>` : ''}</div>
-            <p class="writing-entry-excerpt">${escapeHtml(entry.content)}</p>
-            <div class="writing-entry-meta"><span>${writingWordCount(entry.content)} từ</span><span>${errors.length} lỗi đã ghi</span><span>${escapeHtml(entry.createdDate)}</span></div>
-            <div class="writing-entry-actions">
-              <details><summary>Xem toàn bộ bài & lỗi ↓</summary><div class="writing-entry-detail"><p>${escapeHtml(entry.content)}</p>${errors.length ? `<div class="writing-entry-errors">${errors.map((item) => `<div class="writing-entry-error"><p>${escapeHtml(item.mistake)}</p><b>→</b><p>${escapeHtml(item.correction)}</p></div>`).join('')}</div>` : ''}</div></details>
-              <button type="button" data-writing-entry-action="edit">Chỉnh sửa</button><button type="button" data-writing-entry-action="delete">Xóa</button>
+        return `<details class="writing-entry-card" data-writing-entry-id="${escapeHtml(entry.id)}">
+          <summary class="writing-entry-summary" aria-label="Mở chi tiết bài Writing">
+            <div class="writing-entry-thumb">${entry.promptImage ? `<img loading="lazy" src="${escapeHtml(entry.promptImage)}" alt="Ảnh đề ${escapeHtml(typeName)}"/>` : '<span>Chưa có ảnh đề</span>'}</div>
+            <div class="writing-entry-overview">
+              <strong class="writing-entry-date"><span>NGÀY LÀM BÀI</span>${escapeHtml(dateLabel(entry.createdDate, true))}</strong>
+              <div class="writing-entry-stats">
+                ${entry.score !== '' ? `<span class="writing-entry-band"><small>BAND</small><b>${escapeHtml(entry.score)}</b></span>` : '<span><small>BAND</small><b>—</b></span>'}
+                <span><small>SỐ TỪ</small><b>${writingWordCount(entry.content)}</b></span>
+                <span><small>LỖI ĐÃ GHI</small><b>${errors.length}</b></span>
+              </div>
             </div>
+          </summary>
+          <div class="writing-entry-detail">
+            <div class="writing-entry-detail-head"><div><span>${escapeHtml(writingTaskLabel(entry.task).toUpperCase())}</span><h3>${escapeHtml(typeName)}</h3></div><div class="writing-entry-actions"><button type="button" data-writing-entry-action="edit">Chỉnh sửa</button><button type="button" data-writing-entry-action="delete">Xóa</button></div></div>
+            <section class="writing-entry-content"><h4>Bài làm</h4><p>${escapeHtml(entry.content)}</p></section>
+            ${errors.length ? `<section class="writing-entry-errors"><h4>Những lỗi đã ghi</h4>${errors.map((item) => `<div class="writing-entry-error"><p>${escapeHtml(item.mistake)}</p><b>→</b><p>${escapeHtml(item.correction)}</p></div>`).join('')}</section>` : '<p class="writing-entry-no-errors">Bài này chưa ghi lỗi sai nào.</p>'}
           </div>
-        </article>`;
+        </details>`;
       }).join('')}
     </section>`).join('') : emptyState('Nhật ký Writing đang trống', `Bài ${writingTaskLabel()} đầu tiên của bạn sẽ xuất hiện ở đây.`);
 }
