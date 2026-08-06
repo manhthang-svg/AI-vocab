@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor, nativeImage, clipboard, desktopCapturer, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor, nativeImage, clipboard, desktopCapturer, screen, Menu } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -507,6 +507,24 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const flags = params.editFlags || {};
+    const template = params.isEditable ? [
+      { label: 'Hoàn tác', role: 'undo', enabled: Boolean(flags.canUndo) },
+      { label: 'Làm lại', role: 'redo', enabled: Boolean(flags.canRedo) },
+      { type: 'separator' },
+      { label: 'Cắt', role: 'cut', enabled: Boolean(flags.canCut) },
+      { label: 'Sao chép', role: 'copy', enabled: Boolean(flags.canCopy) },
+      { label: 'Dán', role: 'paste', enabled: Boolean(flags.canPaste) },
+      { label: 'Xóa', role: 'delete', enabled: Boolean(flags.canDelete) },
+      { type: 'separator' },
+      { label: 'Chọn tất cả', role: 'selectAll', enabled: Boolean(flags.canSelectAll) }
+    ] : params.selectionText ? [
+      { label: 'Sao chép', role: 'copy' },
+      { label: 'Chọn tất cả', role: 'selectAll' }
+    ] : [];
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: mainWindow });
+  });
 
   const capturePath = process.env.MILIM_CAPTURE_PATH;
   if (capturePath) {
@@ -550,6 +568,7 @@ function createWindow() {
             termVisible: document.body.innerText.includes('thrill'),
             definitionVisible: document.body.innerText.includes('cảm giác phấn khích') && document.body.innerText.includes('làm ai đó phấn khích'),
             multiplePartsVisible: document.querySelectorAll('#deck-detail .word-row .pos-label').length === 2,
+            libraryNoteVisible: document.querySelector('#deck-detail .library-word-note')?.innerText.includes('The roller coaster gave us a thrill.'),
             keyboardPartSelection,
             formClearedAfterSave,
             noteHiddenBeforeAnswer: false,
@@ -566,6 +585,7 @@ function createWindow() {
             regenerateVisible: false,
             fastReviewVisible: false,
             fastRevealVisible: false,
+            fastWrongRetry: false,
             fastKeyboardGrade: false,
             weakWordEscalates: false,
             speakingSaved: false,
@@ -688,8 +708,13 @@ function createWindow() {
             document.querySelector('#start-due-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 100));
             result.fastReviewVisible = document.body.innerText.includes('Ôn nhanh · không gọi AI');
-            result.fastRevealVisible = Boolean(document.querySelector('#reveal-fast-answer')) && !document.querySelector('.fast-answer');
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+            result.fastRevealVisible = Boolean(document.querySelector('#fast-term-input')) && !document.querySelector('.fast-answer');
+            document.querySelector('#fast-term-input').value = 'wrong answer';
+            document.querySelector('#fast-answer-form').requestSubmit();
+            await new Promise(resolve => setTimeout(resolve, 80));
+            result.fastWrongRetry = Boolean(document.querySelector('.fast-term-error')) && !document.querySelector('.fast-answer');
+            document.querySelector('#fast-term-input').value = '  BRIEF  ';
+            document.querySelector('#fast-answer-form').requestSubmit();
             await new Promise(resolve => setTimeout(resolve, 80));
             result.fastRevealVisible = result.fastRevealVisible && document.body.innerText.includes('ĐÁP ÁN') && document.body.innerText.includes('brief');
             if (${keepFastReview}) {
@@ -710,7 +735,8 @@ function createWindow() {
             document.querySelector('[data-view="review"]').click();
             document.querySelector('#start-due-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 80));
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+            document.querySelector('#fast-term-input').value = 'mingle';
+            document.querySelector('#fast-answer-form').requestSubmit();
             await new Promise(resolve => setTimeout(resolve, 60));
             window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' }));
             await new Promise(resolve => setTimeout(resolve, 180));
@@ -719,12 +745,13 @@ function createWindow() {
             result.reviewComplete = result.reviewFeedback;
             result.fastReviewVisible = true;
             result.fastRevealVisible = true;
+            result.fastWrongRetry = true;
             result.fastKeyboardGrade = true;
             result.weakWordEscalates = true;
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

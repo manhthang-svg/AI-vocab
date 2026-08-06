@@ -149,6 +149,10 @@ kbd { border: 1px solid #e8dde1; border-bottom-width: 2px; padding: 2px 5px; bor
 .word-term strong { display: inline; font-family: Georgia, serif; font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
 .pos-label { display: inline-block; margin-left: 7px; padding: 3px 6px; vertical-align: 2px; border-radius: 6px; background: var(--surface-soft); color: var(--pink-dark); font-size: 7px; font-weight: 800; text-transform: uppercase; }
 .word-definition { color: #776d74; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.word-copy { display: grid; min-width: 0; gap: 8px; }
+.library-word-note { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; padding: 9px 11px; border-left: 3px solid #e7a5bb; border-radius: 0 9px 9px 0; background: #fff7fa; }
+.library-word-note span { padding-top: 2px; color: #a83f64; font-size: 8px; font-weight: 850; letter-spacing: .9px; }
+.library-word-note p { margin: 0; color: #5d5357; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .word-actions { display: flex; gap: 4px; }
 .word-actions button { width: 31px; height: 31px; border: 0; border-radius: 9px; color: #a699a1; background: transparent; cursor: pointer; }
 .word-actions button:hover { color: var(--pink-dark); background: var(--surface-soft); }
@@ -1658,6 +1662,21 @@ body {
   font-weight: 730;
   line-height: 1.3;
 }
+.fast-term-form { display: grid; gap: 10px; margin-top: 23px; }
+.fast-term-form > label { color: #9f4263; font-size: 10px; font-weight: 850; letter-spacing: 1.1px; }
+.fast-term-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.fast-term-control input { width: 100%; height: 54px; padding: 0 16px; border: 1.5px solid #ded5d8; border-radius: 11px; color: #171717; background: #fff; outline: 0; font: inherit; font-size: 17px; font-weight: 650; transition: .15s ease; }
+.fast-term-control input:focus { border-color: #bd6a87; box-shadow: 0 0 0 4px rgba(189,106,135,.09); }
+.fast-term-control input::placeholder { color: #aaa0a4; font-weight: 500; }
+.fast-term-control button { min-width: 142px; padding: 0 16px; border: 0; border-radius: 11px; color: #fff; background: #111; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.fast-term-control button:hover { background: #292929; }
+.fast-term-control button kbd { margin-left: 7px; border-color: #555; color: #ddd; background: #292929; }
+.fast-term-hint, .fast-term-error { margin: 0; font-size: 11px; line-height: 1.45; }
+.fast-term-hint { color: #8a8084; }
+.fast-term-error { color: #ae3e55; font-weight: 700; }
+.fast-term-form.has-error input { border-color: #d1697b; background: #fffafb; box-shadow: 0 0 0 4px rgba(209,105,123,.08); }
+.fast-show-answer { justify-self: start; padding: 0; border: 0; color: #9b4564; background: transparent; font: inherit; font-size: 11px; font-weight: 750; cursor: pointer; }
+.fast-show-answer:hover { color: #742d47; text-decoration: underline; }
 .fast-reveal-zone { display: flex; align-items: center; gap: 14px; margin-top: 23px; }
 .fast-reveal-btn {
   min-width: 172px;
@@ -1925,4 +1944,6 @@ body {
   .fast-recall-card { padding: 22px; }
   .fast-cue-panel { grid-template-columns: 1fr; padding: 22px; }
   .fast-answer-heading, .fast-answer-footer { align-items: flex-start; flex-direction: column; }
+  .fast-term-control { grid-template-columns: 1fr; }
+  .fast-term-control button { min-height: 48px; }
 }
