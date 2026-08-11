@@ -1405,70 +1405,37 @@ body {
 .history-summary strong { font-size: 17px; }
 .history-entry > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
 
-.learning-tree-card {
+.weekly-streak-card {
   position: relative;
-  min-height: 350px;
-  padding: 24px;
+  min-height: 280px;
+  padding: 27px 25px 22px;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 48%, rgba(255, 239, 244, .9), transparent 40%),
-    #fff;
+  border: 0;
+  color: #fff;
+  background: linear-gradient(145deg, #ff9411 0%, #ff7900 100%);
+  box-shadow: inset 0 -5px 0 rgba(166, 78, 0, .22), 0 12px 28px rgba(224, 102, 0, .16);
 }
-.tree-card-head { position: relative; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
-.tree-card-head span, .tree-card-head strong { display: block; }
-.tree-card-head > div > span { color: #a64064; font-size: 9px; font-weight: 800; letter-spacing: 1.1px; }
-.tree-card-head strong { margin-top: 5px; color: #171717; font-size: 17px; }
-.tree-card-head strong span { display: inline; }
-.tree-card-head > b {
-  padding: 6px 9px;
-  border: 1px solid #f0d7df;
-  border-radius: 20px;
-  color: #a64064;
-  background: #fff6f9;
-  font-size: 9px;
-  font-weight: 750;
-  white-space: nowrap;
-}
-.learning-tree { display: grid; place-items: center; height: 155px; margin: -3px 0 4px; overflow: hidden; }
-.learning-tree-svg { display: block; width: 100%; height: 100%; overflow: hidden; }
-.tree-shadow { fill: rgba(92, 64, 51, .055); }
-.tree-ground { fill: #f4e6e1; stroke: #e9d4cd; stroke-width: 1; }
-.tree-trunk { fill: #8c6954; stroke: #72513f; stroke-width: 1.2; stroke-linejoin: round; }
-.tree-branch { fill: none; stroke: #795945; stroke-width: 4.5; stroke-linecap: round; }
-.tree-leaf { fill: #799a7b; stroke: #668468; stroke-width: .8; opacity: 0; animation: tree-appear .38s ease forwards; animation-delay: calc(var(--leaf-index) * 18ms); }
-.tree-leaf-1 { fill: #91ad89; }
-.tree-leaf-2 { fill: #66896e; }
-.tree-flower { fill: #e789a7; stroke: #d36c90; stroke-width: .5; opacity: 0; animation: tree-appear .4s ease forwards; animation-delay: calc(var(--flower-index) * 34ms + 100ms); }
-.tree-flower-center { fill: #f7d99a; stroke: #dcae60; }
-.tree-seed { fill: #9b6c52; stroke: #7f563f; stroke-width: .8; }
-.tree-seed path { fill: #8dab87; stroke: #708e70; }
-@keyframes tree-appear { from { opacity: 0; } to { opacity: 1; } }
-.tree-growth-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.tree-growth-copy p { margin: 0; color: #626262; font-size: 10px; line-height: 1.4; }
-.tree-growth-copy span { flex: none; color: #9a9a9a; font-size: 9px; }
-.tree-stage-progress { height: 3px; margin: 9px 0 13px; overflow: hidden; border-radius: 4px; background: #f0e7ea; }
-.tree-stage-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: #cd517c; transition: width .35s ease; }
-.tree-daily-goal { padding-top: 13px; border-top: 1px solid #eeeeee; }
-.tree-daily-goal > div:first-child { display: flex; align-items: center; justify-content: space-between; }
-.tree-daily-goal span { color: #777; font-size: 10px; }
-.tree-daily-goal strong { color: #222; font-size: 11px; }
-.tree-daily-goal .progress-track { height: 5px; margin: 9px 0 6px; }
-.tree-daily-goal > p { margin: 0; color: #8b8b8b; font-size: 9px; }
-.tree-today-stats { display: flex; gap: 12px; margin-top: 9px; }
-.tree-today-stats span { padding: 4px 7px; border-radius: 6px; color: #777; background: #f6f6f6; font-size: 9px; }
-.tree-today-stats b { color: #a13b61; }
-.streak-card { gap: 8px; }
-.streak-icon { flex: none; width: 47px; height: 47px; padding: 1px; overflow: hidden; background: #fff7f9 !important; }
-.streak-icon .learning-tree-svg { width: 50px; height: 50px; }
-.streak-card > div:last-child { min-width: 0; }
-.streak-card > div:last-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-stat-card { display: flex; align-items: center; gap: 11px; padding: 13px 15px; }
-.stat-tree { flex: none; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 12px; background: #fff7f9; }
-.stat-tree .learning-tree-svg { width: 62px; height: 62px; }
-.tree-stat-card > div:last-child { min-width: 0; }
-.tree-stat-card strong { font-size: 18px; }
-.tree-stat-card span { line-height: 1.35; }
-.tree-fallback { color: #789378; font-size: 28px; }
+.hero-grid { grid-template-columns: minmax(0, 1.45fr) minmax(390px, 1fr); }
+.weekly-streak-orb { position: absolute; top: -56px; right: -42px; width: 145px; height: 145px; border-radius: 50%; background: rgba(255,255,255,.11); }
+.weekly-streak-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.weekly-streak-head > span { display: flex; align-items: center; gap: 9px; color: #fff; font-size: 12px; font-weight: 850; letter-spacing: .8px; }
+.weekly-streak-head > span b { font-size: 20px; filter: drop-shadow(0 2px 3px rgba(150,50,0,.22)); }
+.weekly-streak-head small { color: rgba(255,255,255,.78); font-size: 9px; font-weight: 700; }
+.weekly-streak-count { position: relative; display: flex; align-items: baseline; gap: 8px; margin-top: 15px; }
+.weekly-streak-count strong { color: #fff; font-size: 61px; font-weight: 850; line-height: .95; }
+.weekly-streak-count span { color: #fff; font-size: 17px; font-weight: 800; }
+.streak-week { position: relative; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; margin-top: 22px; }
+.streak-day { display: grid; justify-items: center; gap: 8px; min-width: 0; }
+.streak-day i { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: #fff; background: rgba(255,225,187,.48); font-size: 15px; font-style: normal; font-weight: 900; }
+.streak-day span { color: rgba(255,255,255,.82); font-size: 10px; font-weight: 800; }
+.streak-day.learned:not(.today) i { background: rgba(255,255,255,.32); }
+.streak-day.today i { border: 2px solid rgba(255,255,255,.58); background: rgba(255,255,255,.2); }
+.streak-day.today.learned i { color: #ff7710; border-color: #fff; background: #fff; box-shadow: 0 0 0 6px rgba(255,255,255,.16), 0 4px 11px rgba(147,54,0,.22); }
+.streak-day.today span { color: #fff; }
+.weekly-streak-footer { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 23px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.22); }
+.weekly-streak-footer span, .weekly-streak-footer b { color: rgba(255,255,255,.83); font-size: 9px; line-height: 1.4; }
+.weekly-streak-footer b { flex: none; color: #fff; }
+.streak-stat-card i { color: #ff7d00 !important; background: #fff4e6 !important; }
 
 .toast, .confirm-box, .history-box {
   border: 1px solid #d7d7d7;
@@ -1796,46 +1763,33 @@ body {
 .review-note section > span { color: #a43e62; font-size: 8px; font-weight: 850; letter-spacing: 1px; }
 .review-note p { margin: 4px 0 0; color: #4e4649; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
 
-/* Clearer learning-streak summary in the sidebar */
+/* Weekly learning streak in the sidebar */
 .streak-card {
-  align-items: center;
-  gap: 12px;
-  min-height: 104px;
-  padding: 14px;
-  border-color: #eadfe3;
-  background: linear-gradient(145deg, #fff 0%, #fff8fa 100%);
-}
-.streak-icon {
-  width: 64px;
-  height: 70px;
-  border: 1px solid #f1dfe6;
-  border-radius: 12px;
-}
-.streak-icon .learning-tree-svg { width: 66px; height: 66px; }
-.streak-summary { flex: 1; min-width: 0; }
-.streak-summary .streak-eyebrow {
-  margin: 0 0 2px;
-  color: #a34566;
-  font-size: 8px;
-  font-weight: 850;
-  letter-spacing: .9px;
-}
-.streak-summary > strong { display: flex; align-items: baseline; gap: 5px; line-height: 1; }
-.streak-summary > strong b { color: #171717; font-size: 25px; font-weight: 800; }
-.streak-summary > strong small { color: #4f494b; font-size: 11px; font-weight: 700; }
-.streak-stage-row { display: grid; gap: 2px; margin-top: 6px; }
-.streak-stage-row span { margin: 0; color: #656063; font-size: 9px; font-weight: 750; }
-.streak-stage-row em {
+  display: block;
+  min-height: 126px;
+  padding: 13px 12px 12px;
   overflow: hidden;
-  color: #9a8f93;
-  font-size: 8px;
-  font-style: normal;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border: 0;
+  color: #fff;
+  background: linear-gradient(145deg, #ff9512, #ff7900);
+  box-shadow: inset 0 -4px 0 rgba(153,68,0,.2);
 }
-.sidebar-streak-progress { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 99px; background: #f0e6ea; }
-.sidebar-streak-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: #cb527b; transition: width .35s ease; }
+.streak-summary { min-width: 0; }
+.sidebar-streak-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-streak-head > span { display: flex; align-items: center; gap: 5px; margin: 0; color: #fff; font-size: 8px; font-weight: 850; letter-spacing: .65px; }
+.sidebar-streak-head > span b { font-size: 12px; }
+.sidebar-streak-head > strong { display: flex; align-items: baseline; gap: 3px; color: #fff; line-height: 1; }
+.sidebar-streak-head > strong b { font-size: 24px; font-weight: 850; }
+.sidebar-streak-head > strong small { font-size: 9px; }
+.streak-week.compact { gap: 3px; margin-top: 15px; }
+.streak-week.compact .streak-day { gap: 6px; }
+.streak-week.compact .streak-day i { width: 25px; height: 25px; font-size: 10px; }
+.streak-week.compact .streak-day span { margin: 0; color: rgba(255,255,255,.82); font-size: 7px; }
+.streak-week.compact .streak-day.today.learned i { box-shadow: 0 0 0 3px rgba(255,255,255,.16); }
+
+@media (max-width: 1100px) {
+  .sidebar-bottom .streak-card { display: none; }
+}
 
 /* Writing journal */
 .writing-heading { align-items: flex-end; }

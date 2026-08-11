@@ -595,14 +595,14 @@ function createWindow() {
             writingJournalDisclosure: false,
             writingEntryEdited: false,
             retentionControl: false,
-            learningTreeVisible: false,
+            weeklyStreakVisible: false,
             localAIControls: false
           };
-          result.learningTreeVisible = document.querySelector('#home-streak-tree .learning-tree-svg')?.dataset.streak === '1'
-            && document.querySelector('#sidebar-streak-tree .learning-tree-svg')?.dataset.stage === 'sprout';
+          result.weeklyStreakVisible = document.querySelectorAll('#home-streak-week .streak-day').length === 7
+            && Boolean(document.querySelector('#home-streak-week .streak-day.today.learned'))
+            && document.querySelectorAll('#sidebar-streak-week .streak-day').length === 7;
           result.streakSummaryVisible = document.querySelector('#sidebar-streak')?.innerText === '1'
-            && document.querySelector('#sidebar-tree-stage')?.innerText.length > 0
-            && Boolean(document.querySelector('#sidebar-streak-progress'));
+            && Boolean(document.querySelector('#sidebar-streak-week .streak-day.today.learned'));
           document.querySelector('#deck-detail [data-action="history"]')?.click();
           await new Promise(resolve => setTimeout(resolve, 50));
           result.historyVisible = !document.querySelector('#history-modal').classList.contains('hidden');
@@ -751,7 +751,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.learningTreeVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -767,13 +767,14 @@ function createWindow() {
       if (captureTreeDays) {
         await mainWindow.webContents.executeJavaScript(`(() => {
           const days = ${captureTreeDays};
-          const stage = globalThis.MilimTree.stageFor(days);
-          const growth = globalThis.MilimTree.nextGrowth(days);
           document.querySelector('#home-streak').textContent = days;
-          document.querySelector('#tree-stage-label').textContent = stage.label;
-          document.querySelector('#home-streak-tree').innerHTML = globalThis.MilimTree.renderTree(days);
-          document.querySelector('#tree-stage-progress').style.width = growth.progress + '%';
-          document.querySelector('#tree-message').textContent = growth.target ? growth.remaining + ' ngày nữa để cây đạt mốc ' + growth.target.label.toLowerCase() + '.' : 'Cây đã lớn rực rỡ; mỗi ngày tiếp theo sẽ nuôi tán hoa thêm xanh.';
+          document.querySelector('#tree-best').textContent = 'Dài nhất · ' + days + ' ngày';
+          const recent = [...document.querySelectorAll('#home-streak-week .streak-day')];
+          recent.forEach((node, index) => {
+            const learned = index >= 7 - Math.min(days, 7);
+            node.classList.toggle('learned', learned);
+            node.querySelector('i').textContent = learned ? (node.classList.contains('today') ? '🔥' : '✓') : '';
+          });
         })()`);
         await new Promise((resolve) => setTimeout(resolve, 300));
       }

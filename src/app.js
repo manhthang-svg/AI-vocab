@@ -496,16 +496,23 @@ function longestStreak() {
   return globalThis.MilimTree?.longestStreak?.(activityDates()) || streak();
 }
 
-function treeStage(days) {
-  return globalThis.MilimTree?.stageFor?.(days) || { key: days ? 'sprout' : 'seed', label: days ? 'Mầm non' : 'Hạt giống' };
-}
-
-function treeGrowth(days) {
-  return globalThis.MilimTree?.nextGrowth?.(days) || { target: null, remaining: 0, progress: days ? 100 : 0, current: treeStage(days) };
-}
-
-function treeMarkup(days, compact = false) {
-  return globalThis.MilimTree?.renderTree?.(days, { compact }) || `<span class="tree-fallback">${days ? '♧' : '•'}</span>`;
+function streakWeekMarkup(compact = false) {
+  const learnedDates = activityDates();
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const labels = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - index));
+    return date;
+  });
+  return days.map((date, index) => {
+    const key = localDate(date);
+    const learned = learnedDates.has(key);
+    const isToday = index === days.length - 1;
+    const fullDate = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' }).format(date);
+    return `<div class="streak-day ${learned ? 'learned' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)}"><i>${learned ? (isToday ? '🔥' : '✓') : ''}</i><span>${labels[date.getDay()]}</span></div>`;
+  }).join('');
 }
 
 function groupByDate(words = state.data.words) {
@@ -574,15 +581,7 @@ function renderGlobal() {
   $('#nav-due-count').textContent = due > 99 ? '99+' : due;
   $('#nav-due-count').classList.toggle('show', due > 0);
   $('#sidebar-streak').textContent = currentStreak;
-  const sidebarGrowth = treeGrowth(currentStreak);
-  $('#sidebar-tree-stage').textContent = treeStage(currentStreak).label;
-  $('#sidebar-streak-next').textContent = currentStreak === 0
-    ? 'Bắt đầu hôm nay'
-    : sidebarGrowth.target
-      ? `Còn ${sidebarGrowth.remaining} ngày · ${sidebarGrowth.target.label}`
-      : 'Đang nở rực rỡ';
-  $('#sidebar-streak-progress').style.width = `${sidebarGrowth.progress}%`;
-  $('#sidebar-streak-tree').innerHTML = treeMarkup(currentStreak, true);
+  $('#sidebar-streak-week').innerHTML = streakWeekMarkup(true);
   const speakingToday = state.data.speakingErrors.filter((item) => (item.createdDate || localDate(item.createdAt)) === localDate()).length;
   $('#nav-speaking-count').textContent = speakingToday > 99 ? '99+' : speakingToday;
   $('#nav-speaking-count').classList.toggle('show', speakingToday > 0);
@@ -596,28 +595,16 @@ function renderHome() {
   const due = dueWords().length;
   const currentStreak = streak();
   const bestStreak = longestStreak();
-  const growth = treeGrowth(currentStreak);
-  const stage = treeStage(currentStreak);
   const formatted = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date());
   $('#today-label').textContent = formatted.toUpperCase();
   $('#hero-due-count').textContent = due;
   $('#hero-message').textContent = due ? 'Một phiên ôn ngắn hôm nay sẽ giúp ký ức ở lại lâu hơn.' : (state.data.words.length ? 'Bạn đã hoàn thành phần ôn hôm nay. Thật dịu dàng và đều đặn!' : 'Thêm vài từ mới để bắt đầu hành trình cùng milim nhé.');
   $('#hero-review-btn').textContent = due ? 'Bắt đầu ôn' : 'Xem ôn tập';
-  $('#goal-text').textContent = `${wordsToday.length} / 10 từ`;
-  $('#goal-progress').style.width = `${Math.min(100, wordsToday.length * 10)}%`;
-  $('#goal-caption').textContent = wordsToday.length >= 10 ? 'Mục tiêu hôm nay đã hoàn thành. Tuyệt lắm!' : `${Math.max(0, 10 - wordsToday.length)} từ nữa là chạm mục tiêu nhỏ hôm nay.`;
-  $('#today-added').textContent = wordsToday.length;
-  $('#today-reviewed').textContent = reviewedToday;
   $('#home-streak').textContent = currentStreak;
-  $('#home-streak-tree').innerHTML = treeMarkup(currentStreak);
-  $('#tree-stage-label').textContent = stage.label;
+  $('#home-streak-week').innerHTML = streakWeekMarkup();
   $('#tree-best').textContent = `Dài nhất · ${bestStreak} ngày`;
-  $('#tree-stage-progress').style.width = `${growth.progress}%`;
-  $('#tree-message').textContent = currentStreak === 0
-    ? 'Học một từ hoặc ghi một lỗi speaking hôm nay để gieo hạt.'
-    : growth.target
-      ? `${growth.remaining} ngày nữa để cây đạt mốc ${growth.target.label.toLowerCase()}.`
-      : 'Cây đã lớn rực rỡ; mỗi ngày tiếp theo sẽ nuôi tán hoa thêm xanh.';
+  $('#home-streak-message').textContent = currentStreak === 0 ? 'Học hôm nay để bắt đầu chuỗi.' : 'Giữ nhịp mỗi ngày, ký ức sẽ ở lại lâu hơn.';
+  $('#home-today-activity').textContent = `${wordsToday.length} từ mới · ${reviewedToday} lượt ôn`;
 
   const groups = groupByDate();
   const keys = Object.keys(groups).sort().reverse().slice(0, 3);
@@ -1660,7 +1647,7 @@ function renderStats() {
   const regularStats = [
     ['♡', total, 'Tổng từ đã lưu'], ['✦', mastered, 'Từ đã ghi nhớ'], ['↻', reviewCount, 'Lượt ôn tập']
   ].map(([icon, value, label]) => `<article class="stat-card"><i>${icon}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
-  $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card tree-stat-card"><div class="stat-tree">${treeMarkup(currentStreak, true)}</div><div><strong>${currentStreak} ngày</strong><span>${treeStage(currentStreak).label} · dài nhất ${bestStreak} ngày</span></div></article>`;
+  $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card streak-stat-card"><i>🔥</i><strong>${currentStreak}</strong><span>Chuỗi hiện tại · dài nhất ${bestStreak} ngày</span></article>`;
   const usage = state.data.settings.aiUsage;
   const aiTotal = (usage.local || 0) + (usage.gemini || 0) + (usage.manual || 0);
   $('#ai-stats-strip').innerHTML = `<div><span>AI & TỰ ĐÁNH GIÁ</span><strong>${aiTotal} lượt chấm</strong></div><p><b>${usage.local || 0}</b> cục bộ</p><p><b>${usage.gemini || 0}</b> Gemini</p><p><b>${usage.manual || 0}</b> tự đánh giá</p>`;
