@@ -13,6 +13,9 @@ const {
 } = require('./src/ai-contract');
 
 app.setName('milim');
+// Milim is a light 2D interface. Software compositing avoids intermittent white-window
+// failures seen on older Intel hybrid-GPU drivers; the separate llama process can still use GPU layers.
+app.disableHardwareAcceleration();
 
 let mainWindow;
 let writeQueue = Promise.resolve();
@@ -54,7 +57,11 @@ const emptyData = () => ({
     aiUsage: { local: 0, gemini: 0, manual: 0 },
     scriptKnownTerms: [],
     scriptIgnoredTerms: [],
-    scriptLevel: 'auto'
+    scriptLevel: 'auto',
+    scriptFilterMode: 'strict',
+    scriptKnowledge: {},
+    vocabularyProfile: null,
+    dailyGoal: 5
   }
 });
 
@@ -574,6 +581,15 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  let rendererRecoveryCount = 0;
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Milim renderer stopped:', details.reason, details.exitCode);
+    if (details.reason === 'clean-exit' || rendererRecoveryCount >= 2 || mainWindow.isDestroyed()) return;
+    rendererRecoveryCount += 1;
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+    }, 250);
+  });
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const flags = params.editFlags || {};
@@ -666,13 +682,15 @@ function createWindow() {
             weeklyStreakVisible: false,
             localAIControls: false,
             scriptAnalysisStable: false,
-            scriptGlossaryAdded: false
+            scriptGlossaryAdded: false,
+            meaningfulStreakReached: false,
+            abilityAssessment: false
           };
           result.weeklyStreakVisible = document.querySelectorAll('#home-streak-week .streak-day').length === 7
-            && Boolean(document.querySelector('#home-streak-week .streak-day.today.learned'))
+            && Boolean(document.querySelector('#home-streak-week .streak-day.today.partial'))
             && document.querySelectorAll('#sidebar-streak-week .streak-day').length === 7;
-          result.streakSummaryVisible = document.querySelector('#sidebar-streak')?.innerText === '1'
-            && Boolean(document.querySelector('#sidebar-streak-week .streak-day.today.learned'));
+          result.streakSummaryVisible = document.querySelector('#sidebar-streak')?.innerText === '0'
+            && Boolean(document.querySelector('#sidebar-streak-week .streak-day.today.partial'));
           document.querySelector('#deck-detail [data-action="history"]')?.click();
           await new Promise(resolve => setTimeout(resolve, 50));
           result.historyVisible = !document.querySelector('#history-modal').classList.contains('hidden');
@@ -734,6 +752,8 @@ function createWindow() {
             && document.body.innerText.includes('6.5')
             && document.body.innerText.includes('LỖI ĐÃ GHI')
             && document.body.innerText.includes('SỐ TỪ');
+          result.meaningfulStreakReached = document.querySelector('#sidebar-streak')?.innerText === '1'
+            && Boolean(document.querySelector('#sidebar-streak-week .streak-day.today.learned'));
           const writingCard = document.querySelector('.writing-entry-card');
           const writingWasCollapsed = !writingCard.open;
           writingCard.querySelector('.writing-entry-summary').click();
@@ -826,7 +846,7 @@ function createWindow() {
           const scriptTerms = [...document.querySelectorAll('.script-result-card')].map(node => node.dataset.scriptTerm);
           const firstScriptCheck = document.querySelector('.script-pick input');
           const wasChecked = Boolean(firstScriptCheck?.checked);
-          firstScriptCheck?.click();
+          document.querySelector('.script-result-card .script-result-head strong')?.click();
           result.scriptAnalysisStable = scriptTerms.includes('scrutinize')
             && scriptTerms.includes('unanimous')
             && !scriptTerms.includes('scrutiniz')
@@ -843,9 +863,19 @@ function createWindow() {
           await new Promise(resolve => setTimeout(resolve, 120));
           result.scriptGlossaryAdded = enrichedCount === 2
             && state.data.words.some(word => word.term === scriptTerms[0] && word.definition.includes('nghĩa theo ngữ cảnh'));
+          document.querySelector('#script-assessment-start').click();
+          for (let index = 0; index < 18; index += 1) {
+            document.querySelector('[data-ability-answer="correct"]')?.click();
+            await new Promise(resolve => setTimeout(resolve, 8));
+          }
+          await new Promise(resolve => setTimeout(resolve, 120));
+          result.abilityAssessment = state.data.settings.vocabularyProfile?.answered === 18
+            && state.data.settings.vocabularyProfile?.confidence > 0.5
+            && !document.querySelector('#ability-result').classList.contains('hidden');
+          document.querySelector('#ability-complete-close')?.click();
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.scriptAnalysisStable || !result.scriptGlossaryAdded) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.speakingSaved || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.scriptAnalysisStable || !result.scriptGlossaryAdded || !result.abilityAssessment) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

@@ -90,7 +90,8 @@
               <div class="weekly-streak-head"><span><b>🔥</b> CHUỖI NGÀY HỌC</span><small id="tree-best">Dài nhất · 0 ngày</small></div>
               <div class="weekly-streak-count"><strong id="home-streak">0</strong><span>ngày</span></div>
               <div class="streak-week" id="home-streak-week"></div>
-              <div class="weekly-streak-footer"><span id="home-streak-message">Học hôm nay để bắt đầu chuỗi.</span><b id="home-today-activity">0 từ mới · 0 lượt ôn</b></div>
+              <div class="weekly-goal"><div><span id="home-streak-message">Học hôm nay để bắt đầu chuỗi.</span><b id="home-today-activity">0/5 điểm</b></div><div class="weekly-goal-track"><i id="home-goal-progress"></i></div></div>
+              <div class="weekly-streak-footer"><span id="home-weekly-summary">0/7 ngày đạt mục tiêu tuần này</span><b>Xem lịch →</b></div>
             </article>
           </div>
 
@@ -136,11 +137,13 @@
               <strong id="script-profile-level">Đang học từ dữ liệu của bạn</strong>
               <p id="script-profile-meta">Milim dùng từ đã lưu, số lần quên và từ bạn đánh dấu đã biết để lọc gợi ý.</p>
               <label class="script-level-field"><small>TRÌNH ĐỘ HIỆN TẠI</small><select id="script-level"><option value="auto">Tự động</option><option value="A1">A1 · Mới bắt đầu</option><option value="A2">A2 · Cơ bản</option><option value="B1">B1 · Trung cấp</option><option value="B2">B2 · Trên trung cấp</option><option value="C1">C1 · Nâng cao</option><option value="C2">C2 · Thành thạo</option></select></label>
+              <label class="script-level-field script-filter-field"><small>ĐỘ CHẶT BỘ LỌC</small><select id="script-filter-mode"><option value="strict">Lọc gắt · ít nhưng chắc</option><option value="balanced">Cân bằng</option><option value="explore">Khám phá · nhiều gợi ý</option></select></label>
+              <button type="button" class="soft-btn script-assessment-start" id="script-assessment-start">Kiểm tra vốn từ 3 phút</button>
               <button type="button" class="script-reset-profile hidden" id="script-reset-profile">Đặt lại từ đã biết/bỏ qua</button>
             </aside>
           </section>
           <section class="script-results-section">
-            <div class="section-heading compact"><div><h2>Từ/cụm được gợi ý</h2><p id="script-results-caption">Chưa có phân tích nào.</p></div><div class="script-result-toolbar"><button class="soft-btn hidden" id="script-enrich-selected">Tạo nghĩa bằng AI ✦</button><button class="primary-btn hidden" id="script-add-selected">Thêm mục đã chọn</button></div></div>
+            <div class="section-heading compact"><div><h2>Từ/cụm được gợi ý</h2><p id="script-results-caption">Chưa có phân tích nào.</p></div><div class="script-result-toolbar"><button class="text-btn hidden" id="script-known-selected">Đã biết mục đã chọn</button><button class="soft-btn hidden" id="script-enrich-selected">Tạo nghĩa bằng AI ✦</button><button class="primary-btn hidden" id="script-add-selected">Thêm mục đã chọn</button></div></div>
             <p class="script-ai-status hidden" id="script-ai-status"></p>
             <div class="script-results" id="script-results"></div>
           </section>
@@ -223,7 +226,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.5.0</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.6.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
@@ -231,9 +234,11 @@
     <div class="toast" id="toast" role="status"><span id="toast-icon">✓</span><p id="toast-message"></p></div>
     <div class="modal-backdrop hidden" id="confirm-modal"><div class="confirm-box"><div class="confirm-icon">?</div><h2 id="confirm-title">Bạn chắc chứ?</h2><p id="confirm-message"></p><div><button class="soft-btn" id="confirm-cancel">Để sau</button><button class="danger-btn" id="confirm-accept">Đồng ý</button></div></div></div>
     <div class="modal-backdrop hidden" id="history-modal"><div class="history-box"><div class="history-head"><div><p class="eyebrow">LỊCH SỬ ÔN TẬP</p><h2 id="history-word"></h2><p id="history-definition"></p></div><button id="history-close" aria-label="Đóng">×</button></div><div class="history-summary" id="history-summary"></div><div class="history-pattern" id="history-pattern"></div><div class="history-list" id="history-list"></div></div></div>
-    <div class="modal-backdrop hidden" id="streak-modal"><div class="streak-calendar-box"><div class="history-head"><div><p class="eyebrow">CHUỖI NGÀY HỌC</p><h2>Lịch học của bạn</h2><p id="streak-calendar-caption"></p></div><button id="streak-calendar-close" aria-label="Đóng">×</button></div><div class="streak-calendar" id="streak-calendar"></div></div></div>
+    <div class="modal-backdrop hidden" id="streak-modal"><div class="streak-calendar-box"><div class="history-head"><div><p class="eyebrow">NHỊP HỌC CÓ Ý NGHĨA</p><h2>Lịch học của bạn</h2><p id="streak-calendar-caption"></p></div><button id="streak-calendar-close" aria-label="Đóng">×</button></div><div class="streak-goal-settings"><div><span>MỤC TIÊU MỖI NGÀY</span><p>Ôn 1 từ = 2 điểm · thêm từ = 1 · ghi lỗi speaking = 2 · Writing = 5</p></div><select id="streak-daily-goal"><option value="3">3 điểm · nhẹ</option><option value="5">5 điểm · cân bằng</option><option value="10">10 điểm · tập trung</option></select></div><div class="streak-modal-summary" id="streak-modal-summary"></div><div class="streak-calendar" id="streak-calendar"></div><div class="streak-day-detail" id="streak-day-detail">Chọn một ngày để xem bạn đã học gì.</div></div></div>
+    <div class="modal-backdrop hidden" id="ability-modal"><div class="ability-box"><div class="history-head"><div><p class="eyebrow">KIỂM TRA THÍCH NGHI</p><h2>Ước lượng vốn từ thực tế</h2><p>Milim tự tăng hoặc giảm độ khó theo từng câu trả lời.</p></div><button id="ability-close" aria-label="Đóng">×</button></div><div class="ability-progress"><i id="ability-progress-bar"></i><span id="ability-progress-text">Câu 1/18</span></div><div class="ability-question" id="ability-question"></div><div class="ability-result hidden" id="ability-result"></div></div></div>
     <script src="../node_modules/ts-fsrs/dist/index.umd.js"></script>
     <script src="tree.js"></script>
+    <script src="ability.js"></script>
     <script src="script-analyzer.js"></script>
     <script src="app.js"></script>
   </body>

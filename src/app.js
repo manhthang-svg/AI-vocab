@@ -95,6 +95,8 @@ const state = {
   scriptAnalysisStats: null,
   scriptSelectedTerms: new Set(),
   scriptAiLoading: false,
+  abilityAssessment: null,
+  selectedStreakDate: null,
   confirmAction: null,
   toastTimer: null
 };
@@ -392,6 +394,10 @@ function normalizeData(data) {
     scriptKnownTerms: [],
     scriptIgnoredTerms: [],
     scriptLevel: 'auto',
+    scriptFilterMode: 'strict',
+    scriptKnowledge: {},
+    vocabularyProfile: null,
+    dailyGoal: 5,
     ...(data?.settings || {})
   };
   settings.fsrsRetention = normalizedRetention(settings.fsrsRetention);
@@ -402,6 +408,20 @@ function normalizeData(data) {
   settings.scriptKnownTerms = Array.isArray(settings.scriptKnownTerms) ? [...new Set(settings.scriptKnownTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
   settings.scriptIgnoredTerms = Array.isArray(settings.scriptIgnoredTerms) ? [...new Set(settings.scriptIgnoredTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
   settings.scriptLevel = ['auto', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(settings.scriptLevel) ? settings.scriptLevel : 'auto';
+  settings.scriptFilterMode = ['strict', 'balanced', 'explore'].includes(settings.scriptFilterMode) ? settings.scriptFilterMode : 'strict';
+  settings.dailyGoal = [3, 5, 10].includes(Number(settings.dailyGoal)) ? Number(settings.dailyGoal) : 5;
+  const abilityApi = globalThis.MilimAbility;
+  settings.scriptKnowledge = Object.fromEntries(Object.entries(settings.scriptKnowledge && typeof settings.scriptKnowledge === 'object' ? settings.scriptKnowledge : {})
+    .slice(-5000)
+    .map(([term, value]) => [normalizedTerm(term), abilityApi?.normalizeKnowledgeEntry(value) || value])
+    .filter(([term]) => term));
+  settings.scriptKnownTerms.forEach((term) => {
+    if (!settings.scriptKnowledge[term]) settings.scriptKnowledge[term] = abilityApi?.updateKnowledge(null, 0.99, 'known') || { probability: 0.99, evidence: 1 };
+  });
+  const profile = settings.vocabularyProfile;
+  settings.vocabularyProfile = profile && typeof profile === 'object' && abilityApi?.LEVELS.includes(profile.level)
+    ? { ability: Math.max(1, Math.min(6, Number(profile.ability) || abilityApi.LEVELS.indexOf(profile.level) + 1)), level: profile.level, confidence: Math.max(0, Math.min(1, Number(profile.confidence) || 0)), testedAt: profile.testedAt || null, answered: Math.max(0, Number(profile.answered) || 0) }
+    : null;
   return {
     version: 5,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
@@ -489,10 +509,14 @@ function wordKnowledgeMap() {
     const terms = new Set([normalizedTerm(word.term), simpleLemma(word.term)]);
     terms.forEach((term) => {
       if (!term) return;
-      const current = map.get(term) || { reps: 0, lapses: 0, stability: 0, source: word };
+      const history = word.srs?.history || [];
+      const lastGrade = history.at(-1)?.grade;
+      const reviewProbability = lastGrade ? globalThis.MilimAbility?.reviewObservation(lastGrade) : 0.2;
+      const current = map.get(term) || { reps: 0, lapses: 0, stability: 0, probability: reviewProbability, source: word };
       current.reps += Number(word.srs?.reviews || word.srs?.history?.length || 0);
       current.lapses += Number(word.srs?.lapses || 0);
       current.stability = Math.max(current.stability, Number(word.srs?.fsrs?.stability || word.srs?.interval || 0));
+      current.probability = Math.max(Number(current.probability) || 0, reviewProbability);
       current.source = word;
       map.set(term, current);
     });
@@ -500,11 +524,36 @@ function wordKnowledgeMap() {
   return map;
 }
 
+function effectiveVocabularyProfile() {
+  const abilityApi = globalThis.MilimAbility;
+  const selectedLevel = state.data.settings.scriptLevel;
+  if (selectedLevel !== 'auto' && abilityApi?.LEVELS.includes(selectedLevel)) {
+    return { ...(state.data.settings.vocabularyProfile || {}), ability: abilityApi.LEVELS.indexOf(selectedLevel) + 1, level: selectedLevel, confidence: 1, manual: true };
+  }
+  return state.data.settings.vocabularyProfile || { ability: 3, level: 'B1', confidence: 0.25, testedAt: null, answered: 0 };
+}
+
+function updateScriptKnowledge(term, observation, source) {
+  const key = normalizedTerm(term);
+  if (!key || !globalThis.MilimAbility) return;
+  const knowledge = state.data.settings.scriptKnowledge;
+  knowledge[key] = globalThis.MilimAbility.updateKnowledge(knowledge[key], observation, source);
+  const entries = Object.entries(knowledge);
+  if (entries.length > 5000) {
+    entries.sort(([, a], [, b]) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0));
+    entries.slice(0, entries.length - 5000).forEach(([oldKey]) => delete knowledge[oldKey]);
+  }
+}
+
 function analyzeScriptText(text) {
   const analyzer = globalThis.MilimScriptAnalyzer;
   if (!analyzer) return { items: [], stats: { tokens: 0, sentences: 0, profileLevel: 'A1' } };
+  const profile = effectiveVocabularyProfile();
   return analyzer.analyze(text, {
-    profileLevel: state.data.settings.scriptLevel,
+    profileLevel: profile.level,
+    ability: profile.ability,
+    filterMode: state.data.settings.scriptFilterMode,
+    termProbabilities: state.data.settings.scriptKnowledge,
     knownTerms: state.data.settings.scriptKnownTerms,
     ignoredTerms: state.data.settings.scriptIgnoredTerms,
     knowledge: wordKnowledgeMap(),
@@ -518,36 +567,39 @@ function scriptScoreLabel(score) {
   return 'Có thể bỏ qua';
 }
 
-function activityDates() {
-  const dates = new Set();
+function activityMetricsByDate() {
+  const metrics = {};
+  const day = (key) => (metrics[key] ||= { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 });
   state.data.words.forEach((word) => {
-    dates.add(wordDate(word));
-    word.srs.history.forEach((item) => dates.add(localDate(item.at)));
-  });
-  state.data.speakingErrors.forEach((item) => dates.add(item.createdDate || localDate(item.createdAt)));
-  state.data.writing.entries.forEach((item) => dates.add(item.createdDate || localDate(item.createdAt)));
-  return dates;
-}
-
-function activityCountByDate() {
-  const counts = {};
-  state.data.words.forEach((word) => {
-    const key = wordDate(word);
-    counts[key] = (counts[key] || 0) + 1;
+    const created = day(wordDate(word));
+    created.added += 1;
+    created.points += 1;
     word.srs.history.forEach((item) => {
-      const reviewKey = localDate(item.at);
-      counts[reviewKey] = (counts[reviewKey] || 0) + 1;
+      const reviewed = day(localDate(item.at));
+      reviewed.reviewed += 1;
+      reviewed.points += 2;
     });
   });
   state.data.speakingErrors.forEach((item) => {
-    const key = item.createdDate || localDate(item.createdAt);
-    counts[key] = (counts[key] || 0) + 1;
+    const speaking = day(item.createdDate || localDate(item.createdAt));
+    speaking.speaking += 1;
+    speaking.points += 2;
   });
   state.data.writing.entries.forEach((item) => {
-    const key = item.createdDate || localDate(item.createdAt);
-    counts[key] = (counts[key] || 0) + 1;
+    const writing = day(item.createdDate || localDate(item.createdAt));
+    writing.writing += 1;
+    writing.points += 5;
   });
-  return counts;
+  return metrics;
+}
+
+function activityCountByDate() {
+  return Object.fromEntries(Object.entries(activityMetricsByDate()).map(([key, value]) => [key, value.points]));
+}
+
+function activityDates() {
+  const goal = state.data.settings.dailyGoal;
+  return new Set(Object.entries(activityMetricsByDate()).filter(([, value]) => value.points >= goal).map(([key]) => key));
 }
 
 function streak() {
@@ -569,6 +621,8 @@ function longestStreak() {
 
 function streakWeekMarkup(compact = false) {
   const learnedDates = activityDates();
+  const metrics = activityMetricsByDate();
+  const goal = state.data.settings.dailyGoal;
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   const labels = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -580,10 +634,21 @@ function streakWeekMarkup(compact = false) {
   return days.map((date, index) => {
     const key = localDate(date);
     const learned = learnedDates.has(key);
+    const points = metrics[key]?.points || 0;
+    const partial = points > 0 && !learned;
     const isToday = index === days.length - 1;
     const fullDate = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' }).format(date);
-    return `<div class="streak-day ${learned ? 'learned' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)}"><i>${learned ? (isToday ? '🔥' : '✓') : ''}</i><span>${labels[date.getDay()]}</span></div>`;
+    return `<div class="streak-day ${learned ? 'learned' : ''} ${partial ? 'partial' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)} · ${points}/${goal} điểm"><i>${learned ? (isToday ? '🔥' : '✓') : partial ? points : ''}</i><span>${labels[date.getDay()]}</span></div>`;
   }).join('');
+}
+
+function weeklyGoalStats() {
+  const achieved = activityDates();
+  const today = fromDateKey(localDate());
+  const offset = (today.getDay() + 6) % 7;
+  const monday = new Date(today.getTime() - offset * DAY);
+  const completed = Array.from({ length: 7 }, (_, index) => localDate(new Date(monday.getTime() + index * DAY))).filter((key) => achieved.has(key)).length;
+  return { completed, total: 7 };
 }
 
 function groupByDate(words = state.data.words) {
@@ -662,11 +727,13 @@ function renderGlobal() {
 
 function renderHome() {
   const today = localDate();
-  const wordsToday = state.data.words.filter((word) => wordDate(word) === today);
-  const reviewedToday = state.data.words.reduce((count, word) => count + word.srs.history.filter((item) => localDate(item.at) === today).length, 0);
   const due = dueWords().length;
   const currentStreak = streak();
   const bestStreak = longestStreak();
+  const treeGrowth = globalThis.MilimTree?.nextGrowth?.(currentStreak);
+  const todayMetrics = activityMetricsByDate()[today] || { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 };
+  const goal = state.data.settings.dailyGoal;
+  const week = weeklyGoalStats();
   const formatted = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date());
   $('#today-label').textContent = formatted.toUpperCase();
   $('#hero-due-count').textContent = due;
@@ -674,9 +741,13 @@ function renderHome() {
   $('#hero-review-btn').textContent = due ? 'Bắt đầu ôn' : 'Xem ôn tập';
   $('#home-streak').textContent = currentStreak;
   $('#home-streak-week').innerHTML = streakWeekMarkup();
-  $('#tree-best').textContent = `Dài nhất · ${bestStreak} ngày`;
-  $('#home-streak-message').textContent = currentStreak === 0 ? 'Học hôm nay để bắt đầu chuỗi.' : 'Giữ nhịp mỗi ngày, ký ức sẽ ở lại lâu hơn.';
-  $('#home-today-activity').textContent = `${wordsToday.length} từ mới · ${reviewedToday} lượt ôn`;
+  $('#tree-best').textContent = treeGrowth?.current ? `${treeGrowth.current.label} · kỷ lục ${bestStreak} ngày` : `Dài nhất · ${bestStreak} ngày`;
+  $('#home-streak-message').textContent = todayMetrics.points >= goal
+    ? 'Đã đạt mục tiêu hôm nay.'
+    : `Còn ${goal - todayMetrics.points} điểm để hoàn thành hôm nay.`;
+  $('#home-today-activity').textContent = `${todayMetrics.points}/${goal} điểm`;
+  $('#home-goal-progress').style.width = `${Math.min(100, todayMetrics.points / goal * 100)}%`;
+  $('#home-weekly-summary').textContent = `${week.completed}/7 ngày đạt mục tiêu tuần này`;
 
   const groups = groupByDate();
   const keys = Object.keys(groups).sort().reverse().slice(0, 3);
@@ -694,10 +765,17 @@ function renderScript() {
   $('#script-input-meta').textContent = `${wordCount} từ`;
   const knownCount = state.data.settings.scriptKnownTerms.length;
   const ignoredCount = state.data.settings.scriptIgnoredTerms.length;
-  const profileLevel = state.scriptAnalysisStats?.profileLevel || globalThis.MilimScriptAnalyzer?.estimateProfileLevel(state.data.settings.scriptLevel, knownCount, state.data.words.length) || 'A1';
+  const profile = effectiveVocabularyProfile();
+  const profileLevel = state.scriptAnalysisStats?.profileLevel || profile.level;
   $('#script-level').value = state.data.settings.scriptLevel;
-  $('#script-profile-level').textContent = `${profileLevel} · ${state.data.words.length} từ trong Milim`;
-  $('#script-profile-meta').textContent = `${knownCount} từ đã biết · ${ignoredCount} từ đã bỏ qua · ${state.data.words.filter((word) => word.srs.lapses > 0).length} từ từng quên`;
+  $('#script-filter-mode').value = state.data.settings.scriptFilterMode;
+  $('#script-profile-level').textContent = `${profileLevel} · tin cậy ${Math.round(profile.confidence * 100)}%`;
+  $('#script-profile-meta').textContent = profile.manual
+    ? `Đang dùng mức bạn chọn · ${Object.keys(state.data.settings.scriptKnowledge).length} từ có bằng chứng · ${ignoredCount} từ bỏ qua`
+    : profile.testedAt
+      ? `${profile.answered || 0} câu kiểm tra · ${Object.keys(state.data.settings.scriptKnowledge).length} từ có bằng chứng · ${ignoredCount} từ bỏ qua`
+      : `${state.data.words.length} từ trong Milim chưa phản ánh toàn bộ vốn từ. Hãy làm bài kiểm tra ngắn.`;
+  $('#script-assessment-start').textContent = profile.testedAt ? 'Kiểm tra lại vốn từ' : 'Kiểm tra vốn từ 3 phút';
   $('#script-reset-profile').classList.toggle('hidden', knownCount + ignoredCount === 0);
   const results = state.scriptResults || [];
   const stats = state.scriptAnalysisStats;
@@ -705,10 +783,10 @@ function renderScript() {
     ? `${results.length} gợi ý từ ${stats?.tokens || wordCount} từ · ưu tiên theo hồ sơ ${profileLevel}.`
     : 'Dán một đoạn script rồi bấm phân tích.';
   $('#script-results').innerHTML = results.length ? results.map((item) => `
-    <article class="script-result-card" data-script-term="${escapeHtml(item.term)}">
+    <article class="script-result-card ${state.scriptSelectedTerms.has(normalizedTerm(item.term)) ? 'selected' : ''}" data-script-term="${escapeHtml(item.term)}">
       <label class="script-pick" title="Chọn ${escapeHtml(item.term)}"><input type="checkbox" aria-label="Chọn ${escapeHtml(item.term)}" ${state.scriptSelectedTerms.has(normalizedTerm(item.term)) ? 'checked' : ''}/><span>✓</span></label>
       <div class="script-result-main">
-        <div class="script-result-head"><strong>${escapeHtml(item.term)}</strong><b>${escapeHtml(item.cefr || '—')}</b><i class="pos-label pos-${escapeHtml(item.partOfSpeech || 'other')}">${escapeHtml(posName(item.partOfSpeech || 'other'))}</i><em>${scriptScoreLabel(item.score)}</em></div>
+        <div class="script-result-head"><strong>${escapeHtml(item.term)}</strong><b>${escapeHtml(item.cefr || '—')}</b><i class="pos-label pos-${escapeHtml(item.partOfSpeech || 'other')}">${escapeHtml(posName(item.partOfSpeech || 'other'))}</i><em>${Math.round((1 - Number(item.knownProbability || 0)) * 100)}% có thể chưa biết</em></div>
         ${item.forms?.length && !item.forms.includes(item.term) ? `<p class="script-word-form">Trong script: ${escapeHtml(item.forms.join(', '))}</p>` : ''}
         <p class="script-context">“${escapeHtml(item.context || 'Không tìm thấy câu gốc rõ ràng.')}”</p>
         <div class="script-reasons">${item.reasons.slice(0, 4).map((reason) => `<span>${escapeHtml(reason)}</span>`).join('')}</div>
@@ -716,7 +794,7 @@ function renderScript() {
         ${item.example ? `<p class="script-example"><span>EXAMPLE</span>${escapeHtml(item.example)}</p>` : ''}
       </div>
       <div class="script-result-actions">
-        <small>${item.count} lần · ${Math.round(item.score * 100)}%</small>
+        <small>${item.count} lần · ${scriptScoreLabel(item.score)}</small>
         <button type="button" data-script-action="known">Đã biết</button>
         <button type="button" data-script-action="ignore">Bỏ qua</button>
         <button type="button" data-script-action="add">Thêm</button>
@@ -746,12 +824,98 @@ function updateScriptToolbar() {
   const hasResults = available.size > 0;
   const enrich = $('#script-enrich-selected');
   const add = $('#script-add-selected');
+  const known = $('#script-known-selected');
   enrich.classList.toggle('hidden', !hasResults);
   add.classList.toggle('hidden', !hasResults);
+  known.classList.toggle('hidden', !hasResults);
   enrich.disabled = state.scriptAiLoading || count === 0;
   add.disabled = state.scriptAiLoading || count === 0;
+  known.disabled = state.scriptAiLoading || count === 0;
   enrich.textContent = state.scriptAiLoading ? 'AI đang tạo nghĩa…' : `Tạo nghĩa bằng AI${count ? ` · ${count}` : ''} ✦`;
   add.textContent = `Thêm mục đã chọn${count ? ` · ${count}` : ''}`;
+  known.textContent = `Đã biết mục đã chọn${count ? ` · ${count}` : ''}`;
+}
+
+async function markSelectedScriptTermsKnown() {
+  const terms = selectedScriptTerms();
+  if (!terms.length) return;
+  terms.forEach((term) => {
+    updateScriptKnowledge(term, 0.99, 'known');
+    if (!state.data.settings.scriptKnownTerms.includes(term)) state.data.settings.scriptKnownTerms.push(term);
+  });
+  state.data.settings.scriptKnownTerms = state.data.settings.scriptKnownTerms.slice(-2000);
+  state.scriptResults = state.scriptResults.filter((item) => !state.scriptSelectedTerms.has(normalizedTerm(item.term)));
+  state.scriptSelectedTerms.clear();
+  await persist();
+  renderScript();
+  showToast(`Milim đã học thêm ${terms.length} từ bạn biết.`);
+}
+
+function startAbilityAssessment() {
+  const api = globalThis.MilimAbility;
+  if (!api) return;
+  state.abilityAssessment = {
+    ability: state.data.settings.vocabularyProfile?.ability || 3,
+    answers: [],
+    usedIds: [],
+    observations: []
+  };
+  $('#ability-result').classList.add('hidden');
+  $('#ability-question').classList.remove('hidden');
+  $('#ability-modal').classList.remove('hidden');
+  renderAbilityQuestion();
+}
+
+function closeAbilityAssessment() {
+  $('#ability-modal').classList.add('hidden');
+  state.abilityAssessment = null;
+}
+
+function renderAbilityQuestion() {
+  const api = globalThis.MilimAbility;
+  const session = state.abilityAssessment;
+  if (!api || !session) return;
+  if (session.answers.length >= api.QUESTION_COUNT) { finishAbilityAssessment(); return; }
+  const item = api.nextItem(session.usedIds, session.ability);
+  if (!item) { finishAbilityAssessment(); return; }
+  session.current = item;
+  const currentNumber = session.answers.length + 1;
+  $('#ability-progress-text').textContent = `Câu ${currentNumber}/${api.QUESTION_COUNT}`;
+  $('#ability-progress-bar').style.width = `${session.answers.length / api.QUESTION_COUNT * 100}%`;
+  const choices = api.choicesFor(item).map((choice) => `<button type="button" data-ability-answer="${choice.correct ? 'correct' : 'wrong'}">${escapeHtml(choice.value)}</button>`).join('');
+  $('#ability-question').innerHTML = `<p>Từ này gần nghĩa nhất với đáp án nào?</p><strong>${escapeHtml(item.term)}</strong><small>Đừng đoán nếu bạn chưa từng biết từ này — điều đó giúp Milim hiểu bạn chính xác hơn.</small><div class="ability-choices">${choices}<button type="button" class="unknown" data-ability-answer="unknown">Tôi chưa biết từ này</button></div>`;
+}
+
+function answerAbilityQuestion(answer) {
+  const api = globalThis.MilimAbility;
+  const session = state.abilityAssessment;
+  const item = session?.current;
+  if (!api || !session || !item) return;
+  const correct = answer === 'correct';
+  session.ability = api.updateAbility(session.ability, item, correct);
+  session.answers.push({ id: item.id, term: item.term, difficulty: item.difficulty, correct, answer });
+  session.usedIds.push(item.id);
+  session.observations.push({ term: item.term, probability: correct ? 0.93 : answer === 'unknown' ? 0.04 : 0.12 });
+  session.current = null;
+  renderAbilityQuestion();
+}
+
+async function finishAbilityAssessment() {
+  const api = globalThis.MilimAbility;
+  const session = state.abilityAssessment;
+  if (!api || !session) return;
+  const result = api.assessmentResult(session);
+  state.data.settings.vocabularyProfile = { ...result, testedAt: new Date().toISOString() };
+  state.data.settings.scriptLevel = 'auto';
+  session.observations.forEach((item) => updateScriptKnowledge(item.term, item.probability, 'assessment'));
+  await persist();
+  $('#ability-progress-bar').style.width = '100%';
+  $('#ability-progress-text').textContent = `Hoàn thành ${result.answered} câu`;
+  $('#ability-question').classList.add('hidden');
+  $('#ability-result').classList.remove('hidden');
+  $('#ability-result').innerHTML = `<span>HỒ SƠ MỚI</span><strong>${result.level}</strong><h3>Độ tin cậy ${Math.round(result.confidence * 100)}%</h3><p>${result.correct}/${result.answered} câu đúng. Từ giờ Milim sẽ dùng mức năng lực này cùng phản hồi “Đã biết”, lịch FSRS và những lần bạn quên để lọc script.</p><button type="button" class="primary-btn" id="ability-complete-close">Dùng hồ sơ này</button>`;
+  if ($('#script-input').value.trim()) runScriptAnalysis();
+  else renderScript();
 }
 
 async function enrichSelectedScriptTerms() {
@@ -794,6 +958,7 @@ async function markScriptTerm(term, mode) {
   if (!key) return;
   const field = mode === 'known' ? 'scriptKnownTerms' : 'scriptIgnoredTerms';
   state.data.settings[field] = [...new Set([...(state.data.settings[field] || []), key])].slice(-2000);
+  if (mode === 'known') updateScriptKnowledge(key, 0.99, 'known');
   state.scriptResults = state.scriptResults.filter((item) => normalizedTerm(item.term) !== key);
   state.scriptSelectedTerms.delete(key);
   await persist();
@@ -833,6 +998,7 @@ async function addScriptTerms(terms) {
   });
   if (!additions.length) { showToast('Những mục này đã có trong bộ từ của bạn.', '!', true); return; }
   state.data.words.push(...additions);
+  additions.forEach((word) => updateScriptKnowledge(word.term, 0.12, 'added'));
   state.scriptResults = state.scriptResults.filter((item) => !uniqueTerms.includes(normalizedTerm(item.term)));
   uniqueTerms.forEach((term) => state.scriptSelectedTerms.delete(term));
   await persist();
@@ -1825,6 +1991,7 @@ async function gradeCurrent(grade, result = null) {
     aiProvider: result.provider || 'manual',
     reviewMode: 'deep'
   } : { reviewMode: wasDeep ? 'deep' : 'fast' });
+  updateScriptKnowledge(word.term, globalThis.MilimAbility?.reviewObservation(grade) ?? 0.5, 'review');
   if (result) {
     const provider = ['local', 'gemini', 'manual'].includes(result.provider) ? result.provider : 'manual';
     state.data.settings.aiUsage[provider] = (Number(state.data.settings.aiUsage[provider]) || 0) + 1;
@@ -1925,12 +2092,20 @@ function renderStats() {
 
 function renderStreakCalendar() {
   const counts = activityCountByDate();
+  const metrics = activityMetricsByDate();
+  const goal = state.data.settings.dailyGoal;
   const today = fromDateKey(localDate());
   const mondayOffset = (today.getDay() + 6) % 7;
   const start = new Date(today.getTime() - (11 * 7 + mondayOffset) * DAY);
   const days = Array.from({ length: 12 * 7 }, (_, index) => new Date(start.getTime() + index * DAY));
-  const max = Math.max(1, ...Object.values(counts));
-  $('#streak-calendar-caption').textContent = `${streak()} ngày hiện tại · dài nhất ${longestStreak()} ngày`;
+  const max = Math.max(goal, ...Object.values(counts));
+  const week = weeklyGoalStats();
+  const totalPoints = Object.values(metrics).reduce((sum, item) => sum + item.points, 0);
+  $('#streak-daily-goal').value = String(goal);
+  const growth = globalThis.MilimTree?.nextGrowth?.(streak());
+  const growthMessage = growth?.target ? `Còn ${growth.remaining} ngày đạt mục tiêu để cây lên “${growth.target.label}”.` : 'Cây học tập đã đạt giai đoạn cao nhất.';
+  $('#streak-calendar-caption').textContent = `Một ngày được nối chuỗi khi đạt ít nhất ${goal} điểm. ${growthMessage}`;
+  $('#streak-modal-summary').innerHTML = `<div><strong>${streak()}</strong><span>ngày hiện tại</span></div><div><strong>${longestStreak()}</strong><span>dài nhất</span></div><div><strong>${week.completed}/7</strong><span>tuần này</span></div><div><strong>${totalPoints}</strong><span>tổng điểm học</span></div>`;
   $('#streak-calendar').innerHTML = `
     <div class="streak-calendar-weekdays">${['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((day) => `<span>${day}</span>`).join('')}</div>
     <div class="streak-calendar-grid">
@@ -1939,12 +2114,29 @@ function renderStreakCalendar() {
         const count = counts[key] || 0;
         const level = count ? Math.max(1, Math.ceil(count / max * 4)) : 0;
         const label = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(date);
-        return `<div class="streak-calendar-day level-${level} ${key === localDate() ? 'today' : ''}" title="${label} · ${count} hoạt động"><span>${date.getDate()}</span>${count ? `<b>${count}</b>` : ''}</div>`;
+        return `<button type="button" class="streak-calendar-day level-${level} ${count >= goal ? 'achieved' : count ? 'partial' : ''} ${key === localDate() ? 'today' : ''} ${key === state.selectedStreakDate ? 'selected' : ''}" data-streak-date="${key}" title="${label} · ${count}/${goal} điểm"><span>${date.getDate()}</span>${count ? `<b>${count}</b>` : ''}</button>`;
       }).join('')}
     </div>`;
+  renderStreakDayDetail(state.selectedStreakDate || localDate());
+}
+
+function renderStreakDayDetail(key) {
+  state.selectedStreakDate = key;
+  const metric = activityMetricsByDate()[key] || { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 };
+  const goal = state.data.settings.dailyGoal;
+  const label = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(fromDateKey(key));
+  const activities = [
+    metric.reviewed ? `${metric.reviewed} lượt ôn × 2` : '',
+    metric.added ? `${metric.added} từ mới × 1` : '',
+    metric.speaking ? `${metric.speaking} lỗi speaking × 2` : '',
+    metric.writing ? `${metric.writing} bài Writing × 5` : ''
+  ].filter(Boolean);
+  $('#streak-day-detail').innerHTML = `<div><span>${escapeHtml(label)}</span><strong>${metric.points}/${goal} điểm · ${metric.points >= goal ? 'Đã nối chuỗi' : metric.points ? 'Chưa đạt mục tiêu' : 'Chưa học'}</strong></div><p>${activities.length ? escapeHtml(activities.join(' · ')) : 'Ngày này chưa có hoạt động học được ghi lại.'}</p>`;
+  $$('.streak-calendar-day').forEach((node) => node.classList.toggle('selected', node.dataset.streakDate === key));
 }
 
 function openStreakCalendar() {
+  state.selectedStreakDate = localDate();
   renderStreakCalendar();
   $('#streak-modal').classList.remove('hidden');
 }
@@ -2100,6 +2292,8 @@ function bindEvents() {
     if (go) navigate(go.dataset.go);
 
     if (event.target.closest('.weekly-streak-card, .sidebar-bottom .streak-card')) openStreakCalendar();
+    const streakDay = event.target.closest('[data-streak-date]');
+    if (streakDay) renderStreakDayDetail(streakDay.dataset.streakDate);
 
     const pos = event.target.closest('[data-pos]');
     if (pos) {
@@ -2242,6 +2436,11 @@ function bindEvents() {
     }
     if (event.target.closest('#script-enrich-selected')) enrichSelectedScriptTerms();
     if (event.target.closest('#script-add-selected')) addScriptTerms(selectedScriptTerms());
+    if (event.target.closest('#script-known-selected')) markSelectedScriptTermsKnown();
+    if (event.target.closest('#script-assessment-start')) startAbilityAssessment();
+    const abilityAnswer = event.target.closest('[data-ability-answer]');
+    if (abilityAnswer) answerAbilityQuestion(abilityAnswer.dataset.abilityAnswer);
+    if (event.target.closest('#ability-close, #ability-complete-close')) closeAbilityAssessment();
     if (event.target.closest('#script-reset-profile')) askConfirm(
       'Đặt lại bộ lọc script?',
       'Danh sách từ đã đánh dấu “Đã biết” và “Bỏ qua” sẽ được xóa. Từ vựng trong thư viện không bị ảnh hưởng.',
@@ -2276,7 +2475,16 @@ function bindEvents() {
     if (!term) return;
     if (event.target.checked) state.scriptSelectedTerms.add(term);
     else state.scriptSelectedTerms.delete(term);
+    event.target.closest('.script-result-card')?.classList.toggle('selected', event.target.checked);
     updateScriptToolbar();
+  });
+  $('#script-results').addEventListener('click', (event) => {
+    const card = event.target.closest('.script-result-card');
+    if (!card || event.target.closest('button, input, label, select, textarea, a')) return;
+    const checkbox = card.querySelector('.script-pick input[type="checkbox"]');
+    if (!checkbox) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
   });
   $('#script-results').addEventListener('input', (event) => {
     if (!event.target.matches('[data-script-definition]')) return;
@@ -2290,6 +2498,13 @@ function bindEvents() {
     if ($('#script-input').value.trim()) runScriptAnalysis();
     else renderScript();
     showToast(`Đã dùng hồ sơ ${event.target.options[event.target.selectedIndex].text}.`);
+  });
+  $('#script-filter-mode').addEventListener('change', async (event) => {
+    state.data.settings.scriptFilterMode = event.target.value;
+    await persist();
+    if ($('#script-input').value.trim()) runScriptAnalysis();
+    else renderScript();
+    showToast(`Đã chọn chế độ ${event.target.options[event.target.selectedIndex].text}.`);
   });
   $('#script-paste').addEventListener('click', async () => {
     try {
@@ -2413,6 +2628,13 @@ function bindEvents() {
   $('#review-exit').addEventListener('click', () => askConfirm('Kết thúc phiên ôn?', 'Tiến độ những từ đã trả lời vẫn được lưu.', () => { closeConfirm(); endReview(); }, 'Kết thúc'));
 
   $('#notification-toggle').addEventListener('change', async (event) => { state.data.settings.notifications = event.target.checked; await persist(); showToast(event.target.checked ? 'Đã bật nhắc ôn tập.' : 'Đã tắt nhắc ôn tập.'); });
+  $('#streak-daily-goal').addEventListener('change', async (event) => {
+    state.data.settings.dailyGoal = Number(event.target.value);
+    await persist();
+    renderStreakCalendar();
+    renderHome();
+    showToast(`Mục tiêu mới: ${event.target.value} điểm mỗi ngày.`);
+  });
   $('#notification-time').addEventListener('change', async (event) => { state.data.settings.notificationTime = event.target.value; state.data.settings.lastNotificationDate = null; await persist(); showToast('Đã đổi giờ nhắc học.'); });
   $('#retention-input').addEventListener('input', (event) => { $('#retention-value').textContent = `${event.target.value}%`; });
   $('#retention-input').addEventListener('change', async (event) => {
@@ -2544,12 +2766,14 @@ function bindEvents() {
   $('#history-modal').addEventListener('click', (event) => { if (event.target.id === 'history-modal') closeWordHistory(); });
   $('#streak-calendar-close').addEventListener('click', closeStreakCalendar);
   $('#streak-modal').addEventListener('click', (event) => { if (event.target.id === 'streak-modal') closeStreakCalendar(); });
+  $('#ability-modal').addEventListener('click', (event) => { if (event.target.id === 'ability-modal') closeAbilityAssessment(); });
 
   window.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); resetForm(); navigate('add'); }
     if (event.key === 'Escape' && !$('#confirm-modal').classList.contains('hidden')) closeConfirm();
     if (event.key === 'Escape' && !$('#history-modal').classList.contains('hidden')) closeWordHistory();
     if (event.key === 'Escape' && !$('#streak-modal').classList.contains('hidden')) closeStreakCalendar();
+    if (event.key === 'Escape' && !$('#ability-modal').classList.contains('hidden')) closeAbilityAssessment();
     if (state.view === 'review' && state.review && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const activeTag = document.activeElement?.tagName;
       if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {

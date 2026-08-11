@@ -162,12 +162,9 @@
 
   function estimateProfileLevel(profileLevel, knownCount = 0, librarySize = 0) {
     if (CEFR_RANK[profileLevel]) return profileLevel;
-    const evidence = Math.max(knownCount, librarySize);
-    if (evidence >= 1200) return 'C1';
-    if (evidence >= 600) return 'B2';
-    if (evidence >= 220) return 'B1';
-    if (evidence >= 80) return 'A2';
-    return 'A1';
+    // The size of a personal library is not a valid proxy for total vocabulary.
+    // Until an assessment exists, B1 is a deliberately neutral starting point.
+    return 'B1';
   }
 
   function analyze(text, options = {}) {
@@ -201,6 +198,9 @@
 
     const profileLevel = estimateProfileLevel(options.profileLevel, knownTerms.size, Number(options.librarySize) || knowledge.size);
     const profileRank = CEFR_RANK[profileLevel];
+    const ability = Math.max(1, Math.min(6, Number(options.ability) || profileRank));
+    const termProbabilities = options.termProbabilities && typeof options.termProbabilities === 'object' ? options.termProbabilities : {};
+    const filterMode = ['strict', 'balanced', 'explore'].includes(options.filterMode) ? options.filterMode : 'strict';
     const items = [...entries.values()].map((entry) => {
       const forms = [...entry.forms];
       const term = entry.term;
@@ -209,12 +209,23 @@
       const ignored = ignoredTerms.has(term) || forms.some((form) => ignoredTerms.has(form));
       const cefr = levelFor(term);
       const levelDistance = CEFR_RANK[cefr] - profileRank;
-      const novelty = learned || alreadyKnown ? 0 : 0.34;
+      const explicitEntry = termProbabilities[term] || forms.map((form) => termProbabilities[form]).find(Boolean);
+      const explicitProbability = Number(explicitEntry?.probability ?? explicitEntry?.p);
+      const learnedProbability = Number(learned?.probability);
+      const profileProbability = 1 / (1 + Math.exp(-1.55 * (ability - CEFR_RANK[cefr])));
+      const knownProbability = alreadyKnown
+        ? 0.99
+        : Number.isFinite(explicitProbability)
+          ? Math.max(0, Math.min(1, explicitProbability))
+          : Number.isFinite(learnedProbability)
+            ? Math.max(0, Math.min(1, learnedProbability))
+            : profileProbability;
+      const novelty = (1 - knownProbability) * 0.52;
       const weakMemory = learned ? Math.min(0.42, (Number(learned.lapses) || 0) * 0.13 + ((Number(learned.stability) || 0) < 7 ? 0.12 : 0) - ((Number(learned.stability) || 0) >= 21 ? 0.24 : 0)) : 0;
       const levelFit = levelDistance >= 0 ? Math.min(0.3, 0.12 + levelDistance * 0.08) : Math.max(-0.18, levelDistance * 0.07);
       const frequencyBoost = Math.min(0.16, entry.count * 0.035);
       const phraseBoost = entry.phrase ? 0.12 : 0;
-      const score = Math.max(0, Math.min(1, novelty + weakMemory + levelFit + frequencyBoost + phraseBoost - (alreadyKnown ? 0.5 : 0) - (ignored ? 1 : 0)));
+      const score = Math.max(0, Math.min(1, novelty + weakMemory + levelFit + frequencyBoost + phraseBoost - knownProbability * 0.2 - (ignored ? 1 : 0)));
       const context = contextFor(sentences, forms.length ? forms : [term]);
       const reasons = [];
       if (!learned && !alreadyKnown) reasons.push('chưa có trong Milim');
@@ -224,14 +235,20 @@
       if (entry.count > 1) reasons.push(`xuất hiện ${entry.count} lần`);
       reasons.push(`ước tính ${cefr}`);
       return {
-        term, forms, count: entry.count, score, cefr, known: Boolean(learned || alreadyKnown), ignored,
+        term, forms, count: entry.count, score, cefr, knownProbability, known: knownProbability >= 0.8, ignored,
         context, partOfSpeech: guessPartOfSpeech(term, context), definition: '', reasons
       };
-    }).filter((item) => !item.ignored && item.score >= 0.16)
+    }).filter((item) => {
+      if (item.ignored) return false;
+      if (item.reasons.some((reason) => reason.includes('từng quên'))) return item.score >= 0.12;
+      if (filterMode === 'strict') return item.knownProbability < 0.5 && item.score >= 0.3;
+      if (filterMode === 'balanced') return item.knownProbability < 0.78 && item.score >= 0.18;
+      return item.knownProbability < 0.94 && item.score >= 0.08;
+    })
       .sort((a, b) => b.score - a.score || b.count - a.count || a.term.localeCompare(b.term))
       .slice(0, Math.max(10, Math.min(80, Number(options.limit) || 60)));
 
-    return { items, stats: { tokens: rawTokens.length, sentences: sentences.length, profileLevel } };
+    return { items, stats: { tokens: rawTokens.length, sentences: sentences.length, profileLevel, ability, filterMode } };
   }
 
   return { CEFR_RANK, LEVELS, STOP_WORDS, PHRASES, normalize, cleanTranscript, lemmaCandidates, lemma, levelFor, guessPartOfSpeech, estimateProfileLevel, analyze };
