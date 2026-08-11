@@ -41,6 +41,10 @@
             <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8m-8 4h5"/></svg>
             <span>Ôn tập</span><b class="due-badge" id="nav-due-count">0</b>
           </button>
+          <button class="nav-item" data-view="script">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8m-8 4h6m-6 4h4"/></svg>
+            <span>Phân tích script</span>
+          </button>
           <button class="nav-item" data-view="speaking">
             <svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8"/></svg>
             <span>Speaking Errors</span><b class="due-badge" id="nav-speaking-count">0</b>
@@ -120,6 +124,25 @@
           <div id="review-stage"></div>
         </section>
 
+        <section class="view" id="view-script">
+          <div class="page-heading script-heading"><div><p class="eyebrow">SCRIPT VOCABULARY</p><h1>Bóc từ từ transcript</h1><p>Dán script, phụ đề hoặc đoạn văn; Milim sẽ ưu tiên những từ và cụm bạn có thể chưa chắc.</p></div></div>
+          <section class="script-workspace">
+            <form class="script-input-panel card" id="script-form">
+              <label class="field"><span>NỘI DUNG SCRIPT</span><textarea id="script-input" rows="14" maxlength="60000" placeholder="Dán transcript, subtitles hoặc đoạn văn tiếng Anh..."></textarea></label>
+              <div class="script-actions"><p id="script-input-meta">0 từ</p><button type="button" class="soft-btn" id="script-paste">Dán clipboard</button><button class="primary-btn" type="submit">Phân tích</button></div>
+            </form>
+            <aside class="script-summary card">
+              <span>Hồ sơ cá nhân</span>
+              <strong id="script-profile-level">Đang học từ dữ liệu của bạn</strong>
+              <p id="script-profile-meta">Milim dùng từ đã lưu, số lần quên và từ bạn đánh dấu đã biết để lọc gợi ý.</p>
+            </aside>
+          </section>
+          <section class="script-results-section">
+            <div class="section-heading compact"><div><h2>Từ/cụm được gợi ý</h2><p id="script-results-caption">Chưa có phân tích nào.</p></div><button class="soft-btn hidden" id="script-add-selected">Thêm mục đã chọn</button></div>
+            <div class="script-results" id="script-results"></div>
+          </section>
+        </section>
+
         <section class="view" id="view-speaking">
           <div class="page-heading speaking-heading"><div><p class="eyebrow">SPEAKING ERRORS</p><h1>Sổ lỗi khi nói</h1><p>Ghi lại điều đã nói và cách bạn muốn sửa — đơn giản, nhanh, theo từng ngày.</p></div></div>
           <form id="speaking-form" class="speaking-form">
@@ -197,7 +220,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.3.0</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.4.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>
@@ -205,6 +228,7 @@
     <div class="toast" id="toast" role="status"><span id="toast-icon">✓</span><p id="toast-message"></p></div>
     <div class="modal-backdrop hidden" id="confirm-modal"><div class="confirm-box"><div class="confirm-icon">?</div><h2 id="confirm-title">Bạn chắc chứ?</h2><p id="confirm-message"></p><div><button class="soft-btn" id="confirm-cancel">Để sau</button><button class="danger-btn" id="confirm-accept">Đồng ý</button></div></div></div>
     <div class="modal-backdrop hidden" id="history-modal"><div class="history-box"><div class="history-head"><div><p class="eyebrow">LỊCH SỬ ÔN TẬP</p><h2 id="history-word"></h2><p id="history-definition"></p></div><button id="history-close" aria-label="Đóng">×</button></div><div class="history-summary" id="history-summary"></div><div class="history-pattern" id="history-pattern"></div><div class="history-list" id="history-list"></div></div></div>
+    <div class="modal-backdrop hidden" id="streak-modal"><div class="streak-calendar-box"><div class="history-head"><div><p class="eyebrow">CHUỖI NGÀY HỌC</p><h2>Lịch học của bạn</h2><p id="streak-calendar-caption"></p></div><button id="streak-calendar-close" aria-label="Đóng">×</button></div><div class="streak-calendar" id="streak-calendar"></div></div></div>
     <script src="../node_modules/ts-fsrs/dist/index.umd.js"></script>
     <script src="tree.js"></script>
     <script src="app.js"></script>
