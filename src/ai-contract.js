@@ -76,26 +76,6 @@ function feedbackContainsUnexpectedScript(value) {
   return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/u.test(feedback);
 }
 
-function containsUnexpectedScript(value) {
-  return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/u.test(String(value || ''));
-}
-
-function normalizeGlossary(value, requestedTerms = [], provider = 'local') {
-  const parsed = typeof value === 'string' ? extractJsonObject(value) : (value || {});
-  const allowed = new Set(requestedTerms.map((term) => String(term || '').trim().toLocaleLowerCase('en')).filter(Boolean));
-  const validParts = new Set(['noun', 'verb', 'adjective', 'adverb', 'phrase', 'phrasal-verb', 'idiom', 'other']);
-  const items = (Array.isArray(parsed.items) ? parsed.items : []).map((item) => {
-    const term = String(item?.term || '').trim().toLocaleLowerCase('en').slice(0, 120);
-    const definition = String(item?.definition || '').trim().slice(0, 800);
-    const example = String(item?.example || '').trim().slice(0, 800);
-    const part = String(item?.part_of_speech || item?.partOfSpeech || 'other').trim().toLocaleLowerCase('en');
-    if (!term || !allowed.has(term) || !definition || containsUnexpectedScript(definition)) return null;
-    return { term, definition, example, partOfSpeech: validParts.has(part) ? part : 'other' };
-  }).filter(Boolean);
-  if (!items.length) throw new Error('AI chưa tạo được nghĩa hợp lệ cho các từ đã chọn.');
-  return { items, provider, manual: false };
-}
-
 function normalizeReviewResult(value, provider = 'local') {
   const parsed = typeof value === 'string' ? extractJsonObject(value) : (value || {});
   if (feedbackContainsUnexpectedScript(parsed)) {
@@ -160,7 +140,6 @@ module.exports = {
   challengeLeaksTarget,
   extractJsonObject,
   feedbackContainsUnexpectedScript,
-  normalizeGlossary,
   normalizeChallenge,
   normalizeReviewResult,
   manualChallenge,

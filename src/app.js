@@ -24,7 +24,7 @@ const WRITING_DEFAULT_TYPES = {
 const api = window.milim || {
   async loadData() {
     const saved = localStorage.getItem('milim-browser-data');
-    return saved ? JSON.parse(saved) : { version: 3, words: [], speakingErrors: [], settings: {} };
+    return saved ? JSON.parse(saved) : { version: 3, words: [], settings: {} };
   },
   async saveData(data) { localStorage.setItem('milim-browser-data', JSON.stringify(data)); return { ok: true }; },
   async exportData() { return { canceled: true }; },
@@ -63,7 +63,6 @@ const api = window.milim || {
   async generateAIChallenge(payload) {
     return { vietnamese_sentence: `Hãy viết một câu tiếng Anh diễn đạt đúng ý: “${payload.savedDefinition}”`, suggested_answer: '', provider: 'manual', manual: true };
   },
-  async enrichScriptTerms() { return { items: [], provider: 'manual', manual: true }; },
   onAIStatus() { return () => {}; },
   async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
   async checkForUpdates() { return this.updateStatus(); },
@@ -78,7 +77,6 @@ const state = {
   selectedDate: null,
   selectedPos: [],
   editingId: null,
-  editingSpeakingId: null,
   writingTask: 'task1',
   editingWritingId: null,
   editingWritingTypeId: null,
@@ -91,11 +89,6 @@ const state = {
   geminiModel: 'gemini-2.5-flash',
   aiStatus: null,
   updateStatus: null,
-  scriptResults: [],
-  scriptAnalysisStats: null,
-  scriptSelectedTerms: new Set(),
-  scriptAiLoading: false,
-  abilityAssessment: null,
   selectedStreakDate: null,
   confirmAction: null,
   toastTimer: null
@@ -391,12 +384,6 @@ function normalizeData(data) {
     aiResourceMode: 'balanced',
     aiIdleMinutes: 5,
     aiUsage: { local: 0, gemini: 0, manual: 0 },
-    scriptKnownTerms: [],
-    scriptIgnoredTerms: [],
-    scriptLevel: 'auto',
-    scriptFilterMode: 'strict',
-    scriptKnowledge: {},
-    vocabularyProfile: null,
     dailyGoal: 5,
     ...(data?.settings || {})
   };
@@ -405,23 +392,7 @@ function normalizeData(data) {
   settings.aiResourceMode = ['saver', 'balanced', 'fast'].includes(settings.aiResourceMode) ? settings.aiResourceMode : 'balanced';
   settings.aiIdleMinutes = Math.max(1, Math.min(30, Number(settings.aiIdleMinutes) || 5));
   settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
-  settings.scriptKnownTerms = Array.isArray(settings.scriptKnownTerms) ? [...new Set(settings.scriptKnownTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
-  settings.scriptIgnoredTerms = Array.isArray(settings.scriptIgnoredTerms) ? [...new Set(settings.scriptIgnoredTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
-  settings.scriptLevel = ['auto', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(settings.scriptLevel) ? settings.scriptLevel : 'auto';
-  settings.scriptFilterMode = ['strict', 'balanced', 'explore'].includes(settings.scriptFilterMode) ? settings.scriptFilterMode : 'strict';
   settings.dailyGoal = [3, 5, 10].includes(Number(settings.dailyGoal)) ? Number(settings.dailyGoal) : 5;
-  const abilityApi = globalThis.MilimAbility;
-  settings.scriptKnowledge = Object.fromEntries(Object.entries(settings.scriptKnowledge && typeof settings.scriptKnowledge === 'object' ? settings.scriptKnowledge : {})
-    .slice(-5000)
-    .map(([term, value]) => [normalizedTerm(term), abilityApi?.normalizeKnowledgeEntry(value) || value])
-    .filter(([term]) => term));
-  settings.scriptKnownTerms.forEach((term) => {
-    if (!settings.scriptKnowledge[term]) settings.scriptKnowledge[term] = abilityApi?.updateKnowledge(null, 0.99, 'known') || { probability: 0.99, evidence: 1 };
-  });
-  const profile = settings.vocabularyProfile;
-  settings.vocabularyProfile = profile && typeof profile === 'object' && abilityApi?.LEVELS.includes(profile.level)
-    ? { ability: Math.max(1, Math.min(6, Number(profile.ability) || abilityApi.LEVELS.indexOf(profile.level) + 1)), level: profile.level, confidence: Math.max(0, Math.min(1, Number(profile.confidence) || 0)), testedAt: profile.testedAt || null, answered: Math.max(0, Number(profile.answered) || 0) }
-    : null;
   return {
     version: 5,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
@@ -499,77 +470,9 @@ function normalizedTerm(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en');
 }
 
-function simpleLemma(value) {
-  return globalThis.MilimScriptAnalyzer?.lemma?.(value) || normalizedTerm(value);
-}
-
-function wordKnowledgeMap() {
-  const map = new Map();
-  state.data.words.forEach((word) => {
-    const terms = new Set([normalizedTerm(word.term), simpleLemma(word.term)]);
-    terms.forEach((term) => {
-      if (!term) return;
-      const history = word.srs?.history || [];
-      const lastGrade = history.at(-1)?.grade;
-      const reviewProbability = lastGrade ? globalThis.MilimAbility?.reviewObservation(lastGrade) : 0.2;
-      const current = map.get(term) || { reps: 0, lapses: 0, stability: 0, probability: reviewProbability, source: word };
-      current.reps += Number(word.srs?.reviews || word.srs?.history?.length || 0);
-      current.lapses += Number(word.srs?.lapses || 0);
-      current.stability = Math.max(current.stability, Number(word.srs?.fsrs?.stability || word.srs?.interval || 0));
-      current.probability = Math.max(Number(current.probability) || 0, reviewProbability);
-      current.source = word;
-      map.set(term, current);
-    });
-  });
-  return map;
-}
-
-function effectiveVocabularyProfile() {
-  const abilityApi = globalThis.MilimAbility;
-  const selectedLevel = state.data.settings.scriptLevel;
-  if (selectedLevel !== 'auto' && abilityApi?.LEVELS.includes(selectedLevel)) {
-    return { ...(state.data.settings.vocabularyProfile || {}), ability: abilityApi.LEVELS.indexOf(selectedLevel) + 1, level: selectedLevel, confidence: 1, manual: true };
-  }
-  return state.data.settings.vocabularyProfile || { ability: 3, level: 'B1', confidence: 0.25, testedAt: null, answered: 0 };
-}
-
-function updateScriptKnowledge(term, observation, source) {
-  const key = normalizedTerm(term);
-  if (!key || !globalThis.MilimAbility) return;
-  const knowledge = state.data.settings.scriptKnowledge;
-  knowledge[key] = globalThis.MilimAbility.updateKnowledge(knowledge[key], observation, source);
-  const entries = Object.entries(knowledge);
-  if (entries.length > 5000) {
-    entries.sort(([, a], [, b]) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0));
-    entries.slice(0, entries.length - 5000).forEach(([oldKey]) => delete knowledge[oldKey]);
-  }
-}
-
-function analyzeScriptText(text) {
-  const analyzer = globalThis.MilimScriptAnalyzer;
-  if (!analyzer) return { items: [], stats: { tokens: 0, sentences: 0, profileLevel: 'A1' } };
-  const profile = effectiveVocabularyProfile();
-  return analyzer.analyze(text, {
-    profileLevel: profile.level,
-    ability: profile.ability,
-    filterMode: state.data.settings.scriptFilterMode,
-    termProbabilities: state.data.settings.scriptKnowledge,
-    knownTerms: state.data.settings.scriptKnownTerms,
-    ignoredTerms: state.data.settings.scriptIgnoredTerms,
-    knowledge: wordKnowledgeMap(),
-    librarySize: state.data.words.length
-  });
-}
-
-function scriptScoreLabel(score) {
-  if (score >= 0.72) return 'Rất nên học';
-  if (score >= 0.48) return 'Nên xem';
-  return 'Có thể bỏ qua';
-}
-
 function activityMetricsByDate() {
   const metrics = {};
-  const day = (key) => (metrics[key] ||= { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 });
+  const day = (key) => (metrics[key] ||= { points: 0, added: 0, reviewed: 0, writing: 0 });
   state.data.words.forEach((word) => {
     const created = day(wordDate(word));
     created.added += 1;
@@ -579,11 +482,6 @@ function activityMetricsByDate() {
       reviewed.reviewed += 1;
       reviewed.points += 2;
     });
-  });
-  state.data.speakingErrors.forEach((item) => {
-    const speaking = day(item.createdDate || localDate(item.createdAt));
-    speaking.speaking += 1;
-    speaking.points += 2;
   });
   state.data.writing.entries.forEach((item) => {
     const writing = day(item.createdDate || localDate(item.createdAt));
@@ -704,8 +602,6 @@ function navigate(view) {
   if (view === 'add') renderRecentAdded();
   if (view === 'library') renderLibrary();
   if (view === 'review' && !state.review) renderReviewWelcome();
-  if (view === 'script') renderScript();
-  if (view === 'speaking') renderSpeaking();
   if (view === 'writing') renderWriting();
   if (view === 'stats') renderStats();
   if (view === 'settings') renderSettings();
@@ -719,9 +615,6 @@ function renderGlobal() {
   $('#nav-due-count').classList.toggle('show', due > 0);
   $('#sidebar-streak').textContent = currentStreak;
   $('#sidebar-streak-week').innerHTML = streakWeekMarkup(true);
-  const speakingToday = state.data.speakingErrors.filter((item) => (item.createdDate || localDate(item.createdAt)) === localDate()).length;
-  $('#nav-speaking-count').textContent = speakingToday > 99 ? '99+' : speakingToday;
-  $('#nav-speaking-count').classList.toggle('show', speakingToday > 0);
   document.body.classList.remove('dark');
 }
 
@@ -731,7 +624,7 @@ function renderHome() {
   const currentStreak = streak();
   const bestStreak = longestStreak();
   const treeGrowth = globalThis.MilimTree?.nextGrowth?.(currentStreak);
-  const todayMetrics = activityMetricsByDate()[today] || { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 };
+  const todayMetrics = activityMetricsByDate()[today] || { points: 0, added: 0, reviewed: 0, writing: 0 };
   const goal = state.data.settings.dailyGoal;
   const week = weeklyGoalStats();
   const formatted = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date());
@@ -757,258 +650,6 @@ function renderHome() {
     return `<article class="deck-card" data-deck-date="${key}" style="--deck-color:${colors[index]}"><div class="deck-top"><time>${escapeHtml(dateLabel(key))}</time><span class="deck-count">${groups[key].length}</span></div><h3>${escapeHtml(dateLabel(key, true))}</h3><p>${escapeHtml(terms)}</p></article>`;
   }).join('') : emptyState('Chưa có bộ từ nào', 'Từ đầu tiên của bạn sẽ xuất hiện ở đây.', 'Thêm từ đầu tiên', 'add');
   renderGlobal();
-}
-
-function renderScript() {
-  const text = $('#script-input')?.value || '';
-  const wordCount = (text.match(/[a-zA-Z][a-zA-Z'-]*/g) || []).length;
-  $('#script-input-meta').textContent = `${wordCount} từ`;
-  const knownCount = state.data.settings.scriptKnownTerms.length;
-  const ignoredCount = state.data.settings.scriptIgnoredTerms.length;
-  const profile = effectiveVocabularyProfile();
-  const profileLevel = state.scriptAnalysisStats?.profileLevel || profile.level;
-  $('#script-level').value = state.data.settings.scriptLevel;
-  $('#script-filter-mode').value = state.data.settings.scriptFilterMode;
-  $('#script-profile-level').textContent = `${profileLevel} · tin cậy ${Math.round(profile.confidence * 100)}%`;
-  $('#script-profile-meta').textContent = profile.manual
-    ? `Đang dùng mức bạn chọn · ${Object.keys(state.data.settings.scriptKnowledge).length} từ có bằng chứng · ${ignoredCount} từ bỏ qua`
-    : profile.testedAt
-      ? `${profile.answered || 0} câu kiểm tra · ${Object.keys(state.data.settings.scriptKnowledge).length} từ có bằng chứng · ${ignoredCount} từ bỏ qua`
-      : `${state.data.words.length} từ trong Milim chưa phản ánh toàn bộ vốn từ. Hãy làm bài kiểm tra ngắn.`;
-  $('#script-assessment-start').textContent = profile.testedAt ? 'Kiểm tra lại vốn từ' : 'Kiểm tra vốn từ 3 phút';
-  $('#script-reset-profile').classList.toggle('hidden', knownCount + ignoredCount === 0);
-  const results = state.scriptResults || [];
-  const stats = state.scriptAnalysisStats;
-  $('#script-results-caption').textContent = results.length
-    ? `${results.length} gợi ý từ ${stats?.tokens || wordCount} từ · ưu tiên theo hồ sơ ${profileLevel}.`
-    : 'Dán một đoạn script rồi bấm phân tích.';
-  $('#script-results').innerHTML = results.length ? results.map((item) => `
-    <article class="script-result-card ${state.scriptSelectedTerms.has(normalizedTerm(item.term)) ? 'selected' : ''}" data-script-term="${escapeHtml(item.term)}">
-      <label class="script-pick" title="Chọn ${escapeHtml(item.term)}"><input type="checkbox" aria-label="Chọn ${escapeHtml(item.term)}" ${state.scriptSelectedTerms.has(normalizedTerm(item.term)) ? 'checked' : ''}/><span>✓</span></label>
-      <div class="script-result-main">
-        <div class="script-result-head"><strong>${escapeHtml(item.term)}</strong><b>${escapeHtml(item.cefr || '—')}</b><i class="pos-label pos-${escapeHtml(item.partOfSpeech || 'other')}">${escapeHtml(posName(item.partOfSpeech || 'other'))}</i><em>${Math.round((1 - Number(item.knownProbability || 0)) * 100)}% có thể chưa biết</em></div>
-        ${item.forms?.length && !item.forms.includes(item.term) ? `<p class="script-word-form">Trong script: ${escapeHtml(item.forms.join(', '))}</p>` : ''}
-        <p class="script-context">“${escapeHtml(item.context || 'Không tìm thấy câu gốc rõ ràng.')}”</p>
-        <div class="script-reasons">${item.reasons.slice(0, 4).map((reason) => `<span>${escapeHtml(reason)}</span>`).join('')}</div>
-        <label class="script-definition"><span>NGHĨA THEO NGỮ CẢNH</span><input data-script-definition maxlength="800" value="${escapeHtml(item.definition || '')}" placeholder="Nhập nghĩa hoặc dùng AI tạo nghĩa..." /></label>
-        ${item.example ? `<p class="script-example"><span>EXAMPLE</span>${escapeHtml(item.example)}</p>` : ''}
-      </div>
-      <div class="script-result-actions">
-        <small>${item.count} lần · ${scriptScoreLabel(item.score)}</small>
-        <button type="button" data-script-action="known">Đã biết</button>
-        <button type="button" data-script-action="ignore">Bỏ qua</button>
-        <button type="button" data-script-action="add">Thêm</button>
-      </div>
-    </article>
-  `).join('') : emptyState('Chưa có gợi ý nào', 'Milim sẽ bóc từ/cụm đáng học từ script bạn dán vào.');
-  updateScriptToolbar();
-  renderGlobal();
-}
-
-function runScriptAnalysis() {
-  const input = $('#script-input');
-  const analysis = analyzeScriptText(input.value);
-  state.scriptResults = analysis.items;
-  state.scriptAnalysisStats = analysis.stats;
-  state.scriptSelectedTerms = new Set(state.scriptResults.slice(0, 8).map((item) => normalizedTerm(item.term)));
-  $('#script-ai-status').classList.add('hidden');
-  $('#script-ai-status').textContent = '';
-  renderScript();
-  if (!state.scriptResults.length) showToast('Chưa tìm thấy từ/cụm đáng học trong đoạn này.', '!', true);
-}
-
-function updateScriptToolbar() {
-  const available = new Set((state.scriptResults || []).map((item) => normalizedTerm(item.term)));
-  state.scriptSelectedTerms = new Set([...state.scriptSelectedTerms].filter((term) => available.has(term)));
-  const count = state.scriptSelectedTerms.size;
-  const hasResults = available.size > 0;
-  const enrich = $('#script-enrich-selected');
-  const add = $('#script-add-selected');
-  const known = $('#script-known-selected');
-  enrich.classList.toggle('hidden', !hasResults);
-  add.classList.toggle('hidden', !hasResults);
-  known.classList.toggle('hidden', !hasResults);
-  enrich.disabled = state.scriptAiLoading || count === 0;
-  add.disabled = state.scriptAiLoading || count === 0;
-  known.disabled = state.scriptAiLoading || count === 0;
-  enrich.textContent = state.scriptAiLoading ? 'AI đang tạo nghĩa…' : `Tạo nghĩa bằng AI${count ? ` · ${count}` : ''} ✦`;
-  add.textContent = `Thêm mục đã chọn${count ? ` · ${count}` : ''}`;
-  known.textContent = `Đã biết mục đã chọn${count ? ` · ${count}` : ''}`;
-}
-
-async function markSelectedScriptTermsKnown() {
-  const terms = selectedScriptTerms();
-  if (!terms.length) return;
-  terms.forEach((term) => {
-    updateScriptKnowledge(term, 0.99, 'known');
-    if (!state.data.settings.scriptKnownTerms.includes(term)) state.data.settings.scriptKnownTerms.push(term);
-  });
-  state.data.settings.scriptKnownTerms = state.data.settings.scriptKnownTerms.slice(-2000);
-  state.scriptResults = state.scriptResults.filter((item) => !state.scriptSelectedTerms.has(normalizedTerm(item.term)));
-  state.scriptSelectedTerms.clear();
-  await persist();
-  renderScript();
-  showToast(`Milim đã học thêm ${terms.length} từ bạn biết.`);
-}
-
-function startAbilityAssessment() {
-  const api = globalThis.MilimAbility;
-  if (!api) return;
-  state.abilityAssessment = {
-    ability: state.data.settings.vocabularyProfile?.ability || 3,
-    answers: [],
-    usedIds: [],
-    observations: []
-  };
-  $('#ability-result').classList.add('hidden');
-  $('#ability-question').classList.remove('hidden');
-  $('#ability-modal').classList.remove('hidden');
-  renderAbilityQuestion();
-}
-
-function closeAbilityAssessment() {
-  $('#ability-modal').classList.add('hidden');
-  state.abilityAssessment = null;
-}
-
-function renderAbilityQuestion() {
-  const api = globalThis.MilimAbility;
-  const session = state.abilityAssessment;
-  if (!api || !session) return;
-  if (session.answers.length >= api.QUESTION_COUNT) { finishAbilityAssessment(); return; }
-  const item = api.nextItem(session.usedIds, session.ability);
-  if (!item) { finishAbilityAssessment(); return; }
-  session.current = item;
-  const currentNumber = session.answers.length + 1;
-  $('#ability-progress-text').textContent = `Câu ${currentNumber}/${api.QUESTION_COUNT}`;
-  $('#ability-progress-bar').style.width = `${session.answers.length / api.QUESTION_COUNT * 100}%`;
-  const choices = api.choicesFor(item).map((choice) => `<button type="button" data-ability-answer="${choice.correct ? 'correct' : 'wrong'}">${escapeHtml(choice.value)}</button>`).join('');
-  $('#ability-question').innerHTML = `<p>Từ này gần nghĩa nhất với đáp án nào?</p><strong>${escapeHtml(item.term)}</strong><small>Đừng đoán nếu bạn chưa từng biết từ này — điều đó giúp Milim hiểu bạn chính xác hơn.</small><div class="ability-choices">${choices}<button type="button" class="unknown" data-ability-answer="unknown">Tôi chưa biết từ này</button></div>`;
-}
-
-function answerAbilityQuestion(answer) {
-  const api = globalThis.MilimAbility;
-  const session = state.abilityAssessment;
-  const item = session?.current;
-  if (!api || !session || !item) return;
-  const correct = answer === 'correct';
-  session.ability = api.updateAbility(session.ability, item, correct);
-  session.answers.push({ id: item.id, term: item.term, difficulty: item.difficulty, correct, answer });
-  session.usedIds.push(item.id);
-  session.observations.push({ term: item.term, probability: correct ? 0.93 : answer === 'unknown' ? 0.04 : 0.12 });
-  session.current = null;
-  renderAbilityQuestion();
-}
-
-async function finishAbilityAssessment() {
-  const api = globalThis.MilimAbility;
-  const session = state.abilityAssessment;
-  if (!api || !session) return;
-  const result = api.assessmentResult(session);
-  state.data.settings.vocabularyProfile = { ...result, testedAt: new Date().toISOString() };
-  state.data.settings.scriptLevel = 'auto';
-  session.observations.forEach((item) => updateScriptKnowledge(item.term, item.probability, 'assessment'));
-  await persist();
-  $('#ability-progress-bar').style.width = '100%';
-  $('#ability-progress-text').textContent = `Hoàn thành ${result.answered} câu`;
-  $('#ability-question').classList.add('hidden');
-  $('#ability-result').classList.remove('hidden');
-  $('#ability-result').innerHTML = `<span>HỒ SƠ MỚI</span><strong>${result.level}</strong><h3>Độ tin cậy ${Math.round(result.confidence * 100)}%</h3><p>${result.correct}/${result.answered} câu đúng. Từ giờ Milim sẽ dùng mức năng lực này cùng phản hồi “Đã biết”, lịch FSRS và những lần bạn quên để lọc script.</p><button type="button" class="primary-btn" id="ability-complete-close">Dùng hồ sơ này</button>`;
-  if ($('#script-input').value.trim()) runScriptAnalysis();
-  else renderScript();
-}
-
-async function enrichSelectedScriptTerms() {
-  if (state.scriptAiLoading) return;
-  const selected = selectedScriptTerms();
-  if (!selected.length) { showToast('Hãy tích ít nhất một từ trước.', '!', true); return; }
-  const selectedItems = selected.map((term) => state.scriptResults.find((item) => normalizedTerm(item.term) === term)).filter(Boolean);
-  const missingDefinitions = selectedItems.filter((item) => !String(item.definition || '').trim());
-  const items = (missingDefinitions.length ? missingDefinitions : selectedItems).slice(0, 16);
-  state.scriptAiLoading = true;
-  const status = $('#script-ai-status');
-  status.classList.remove('hidden', 'error');
-  status.textContent = items.length < selected.length ? `Đang tạo nghĩa cho 16/${selected.length} mục đầu tiên…` : `Đang tạo nghĩa cho ${items.length} mục…`;
-  updateScriptToolbar();
-  try {
-    const result = await api.enrichScriptTerms({
-      profileLevel: state.scriptAnalysisStats?.profileLevel || state.data.settings.scriptLevel,
-      items: items.map(({ term, context, partOfSpeech }) => ({ term, context, partOfSpeech }))
-    });
-    if (!result?.items?.length) throw new Error('AI cục bộ hoặc Gemini chưa sẵn sàng. Bạn vẫn có thể tự nhập nghĩa.');
-    const enriched = new Map(result.items.map((item) => [normalizedTerm(item.term), item]));
-    state.scriptResults = state.scriptResults.map((item) => {
-      const addition = enriched.get(normalizedTerm(item.term));
-      return addition ? { ...item, ...addition, term: item.term } : item;
-    });
-    status.textContent = `Đã tạo nghĩa cho ${enriched.size} mục bằng ${aiProviderName(result.provider)}. Hãy đọc lại trước khi thêm.`;
-    renderScript();
-  } catch (error) {
-    status.classList.add('error');
-    status.textContent = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-    showToast('Chưa tạo được nghĩa bằng AI. Bạn có thể nhập nghĩa thủ công.', '!', true);
-  } finally {
-    state.scriptAiLoading = false;
-    updateScriptToolbar();
-  }
-}
-
-async function markScriptTerm(term, mode) {
-  const key = normalizedTerm(term);
-  if (!key) return;
-  const field = mode === 'known' ? 'scriptKnownTerms' : 'scriptIgnoredTerms';
-  state.data.settings[field] = [...new Set([...(state.data.settings[field] || []), key])].slice(-2000);
-  if (mode === 'known') updateScriptKnowledge(key, 0.99, 'known');
-  state.scriptResults = state.scriptResults.filter((item) => normalizedTerm(item.term) !== key);
-  state.scriptSelectedTerms.delete(key);
-  await persist();
-  renderScript();
-  showToast(mode === 'known' ? 'Milim sẽ ít gợi ý từ này hơn.' : 'Đã bỏ qua từ này.');
-}
-
-async function addScriptTerms(terms) {
-  const uniqueTerms = [...new Set(terms.map(normalizedTerm).filter(Boolean))];
-  if (!uniqueTerms.length) return;
-  const missing = uniqueTerms.map((term) => state.scriptResults.find((item) => normalizedTerm(item.term) === term)).filter((item) => item && !String(item.definition || '').trim());
-  if (missing.length) {
-    const firstCard = $(`[data-script-term="${CSS.escape(missing[0].term)}"]`);
-    firstCard?.querySelector('[data-script-definition]')?.focus();
-    showToast(`Còn ${missing.length} mục chưa có nghĩa. Hãy nhập hoặc dùng AI tạo nghĩa.`, '!', true);
-    return;
-  }
-  const existing = new Set(state.data.words.map((word) => normalizedTerm(word.term)));
-  const now = new Date().toISOString();
-  const additions = uniqueTerms.filter((term) => !existing.has(term)).map((term) => {
-    const result = state.scriptResults.find((item) => normalizedTerm(item.term) === term);
-    const context = result?.context || '';
-    const partOfSpeech = result?.partOfSpeech || (term.includes(' ') ? 'phrase' : 'other');
-    const definition = String(result?.definition || '').trim();
-    const noteParts = [context ? `Context từ script:\n${context}` : '', result?.example ? `Example:\n${result.example}` : ''].filter(Boolean);
-    return normalizeWord({
-      id: uid(),
-      term,
-      definition,
-      definitions: [{ partOfSpeech, definition }],
-      partsOfSpeech: [partOfSpeech],
-      note: noteParts.join('\n\n') || 'Thêm từ tính năng phân tích script.',
-      createdAt: now,
-      createdDate: localDate(),
-      srs: freshSrs(now)
-    }, state.data.settings.fsrsRetention);
-  });
-  if (!additions.length) { showToast('Những mục này đã có trong bộ từ của bạn.', '!', true); return; }
-  state.data.words.push(...additions);
-  additions.forEach((word) => updateScriptKnowledge(word.term, 0.12, 'added'));
-  state.scriptResults = state.scriptResults.filter((item) => !uniqueTerms.includes(normalizedTerm(item.term)));
-  uniqueTerms.forEach((term) => state.scriptSelectedTerms.delete(term));
-  await persist();
-  renderScript();
-  renderRecentAdded();
-  showToast(`Đã thêm ${additions.length} mục vào hôm nay.`);
-}
-
-function selectedScriptTerms() {
-  return [...state.scriptSelectedTerms];
 }
 
 function renderPosOptions() {
@@ -1203,71 +844,6 @@ function renderLibrary() {
   });
   $('#deck-detail').innerHTML = `<div class="detail-header"><div><h2>${escapeHtml(dateLabel(state.selectedDate, true))}</h2><p>${allWords.length} từ · ${allWords.filter((word) => mastery(word) === 'mastered').length} đã ghi nhớ</p></div><div><button class="soft-btn" data-review-date="${state.selectedDate}">Ôn bộ này</button></div></div><div class="word-list">${visible.length ? visible.map((word) => wordRow(word, { review: true, showNote: true })).join('') : emptyState('Không tìm thấy từ phù hợp', 'Thử đổi từ khóa hoặc bộ lọc nhé.')}</div>`;
   renderGlobal();
-}
-
-function renderSpeaking() {
-  const items = [...state.data.speakingErrors].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const groups = items.reduce((result, item) => {
-    const key = item.createdDate || localDate(item.createdAt);
-    (result[key] ||= []).push(item);
-    return result;
-  }, {});
-  const todayCount = groups[localDate()]?.length || 0;
-  $('#speaking-caption').textContent = items.length
-    ? `${items.length} lỗi đã ghi · ${todayCount} lỗi hôm nay`
-    : 'Chưa có lỗi nào được ghi lại';
-  $('#speaking-journal').innerHTML = items.length
-    ? Object.keys(groups).sort().reverse().map((key) => `
-      <section class="speaking-day">
-        <div class="speaking-day-head"><div><strong>${escapeHtml(dateLabel(key, true))}</strong><span>${groups[key].length} ghi chép</span></div><time>${escapeHtml(key)}</time></div>
-        <div class="speaking-error-list">${groups[key].map((item) => `
-          <article class="speaking-error-card" data-speaking-id="${escapeHtml(item.id)}">
-            <div class="speaking-error-side wrong"><span>ĐÃ NÓI / GHI SAI</span><p>${escapeHtml(item.error).replace(/\n/g, '<br>')}</p></div>
-            <div class="speaking-error-divider">→</div>
-            <div class="speaking-error-side fixed"><span>CÁCH SỬA</span><p>${escapeHtml(item.correction).replace(/\n/g, '<br>')}</p></div>
-            <button class="speaking-delete" data-speaking-action="delete" title="Xóa ghi chép">×</button>
-          </article>`).join('')}</div>
-      </section>`).join('')
-    : emptyState('Sổ speaking đang trống', 'Sau mỗi lần nói, ghi lại một lỗi nhỏ và cách sửa ở đây.');
-  renderGlobal();
-}
-
-async function submitSpeakingError(event) {
-  event.preventDefault();
-  const errorInput = $('#speaking-error-input');
-  const correctionInput = $('#speaking-correction-input');
-  const error = errorInput.value.trim();
-  const correction = correctionInput.value.trim();
-  if (!error || !correction) {
-    showToast('Hãy nhập cả lỗi sai và cách sửa.', '!', true);
-    (!error ? errorInput : correctionInput).focus();
-    return;
-  }
-  state.data.speakingErrors.push({
-    id: uid(),
-    error,
-    correction,
-    createdAt: new Date().toISOString(),
-    createdDate: localDate()
-  });
-  await persist(false);
-  errorInput.value = '';
-  correctionInput.value = '';
-  renderSpeaking();
-  showToast('Đã lưu lỗi speaking vào nhật ký hôm nay.');
-  errorInput.focus();
-}
-
-function deleteSpeakingError(id) {
-  const item = state.data.speakingErrors.find((entry) => entry.id === id);
-  if (!item) return;
-  askConfirm('Xóa ghi chép này?', 'Lỗi speaking và phần sửa tương ứng sẽ bị xóa khỏi nhật ký.', async () => {
-    state.data.speakingErrors = state.data.speakingErrors.filter((entry) => entry.id !== id);
-    await persist(false);
-    closeConfirm();
-    renderSpeaking();
-    showToast('Đã xóa ghi chép speaking.');
-  }, 'Xóa ghi chép');
 }
 
 function writingTaskLabel(task = state.writingTask) {
@@ -1991,7 +1567,6 @@ async function gradeCurrent(grade, result = null) {
     aiProvider: result.provider || 'manual',
     reviewMode: 'deep'
   } : { reviewMode: wasDeep ? 'deep' : 'fast' });
-  updateScriptKnowledge(word.term, globalThis.MilimAbility?.reviewObservation(grade) ?? 0.5, 'review');
   if (result) {
     const provider = ['local', 'gemini', 'manual'].includes(result.provider) ? result.provider : 'manual';
     state.data.settings.aiUsage[provider] = (Number(state.data.settings.aiUsage[provider]) || 0) + 1;
@@ -2122,13 +1697,12 @@ function renderStreakCalendar() {
 
 function renderStreakDayDetail(key) {
   state.selectedStreakDate = key;
-  const metric = activityMetricsByDate()[key] || { points: 0, added: 0, reviewed: 0, speaking: 0, writing: 0 };
+  const metric = activityMetricsByDate()[key] || { points: 0, added: 0, reviewed: 0, writing: 0 };
   const goal = state.data.settings.dailyGoal;
   const label = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(fromDateKey(key));
   const activities = [
     metric.reviewed ? `${metric.reviewed} lượt ôn × 2` : '',
     metric.added ? `${metric.added} từ mới × 1` : '',
-    metric.speaking ? `${metric.speaking} lỗi speaking × 2` : '',
     metric.writing ? `${metric.writing} bài Writing × 5` : ''
   ].filter(Boolean);
   $('#streak-day-detail').innerHTML = `<div><span>${escapeHtml(label)}</span><strong>${metric.points}/${goal} điểm · ${metric.points >= goal ? 'Đã nối chuỗi' : metric.points ? 'Chưa đạt mục tiêu' : 'Chưa học'}</strong></div><p>${activities.length ? escapeHtml(activities.join(' · ')) : 'Ngày này chưa có hoạt động học được ghi lại.'}</p>`;
@@ -2260,8 +1834,6 @@ function renderCurrentView() {
   if (state.view === 'add') renderRecentAdded();
   if (state.view === 'library') renderLibrary();
   if (state.view === 'review') renderReviewWelcome();
-  if (state.view === 'script') renderScript();
-  if (state.view === 'speaking') renderSpeaking();
   if (state.view === 'stats') renderStats();
   if (state.view === 'settings') renderSettings();
   renderGlobal();
@@ -2324,10 +1896,6 @@ function bindEvents() {
         if (word) startReview([word], `Ôn riêng · ${word.term}`);
       }
     }
-
-    const speakingRow = event.target.closest('[data-speaking-id]');
-    const speakingAction = event.target.closest('[data-speaking-action]');
-    if (speakingRow && speakingAction?.dataset.speakingAction === 'delete') deleteSpeakingError(speakingRow.dataset.speakingId);
 
     const writingTask = event.target.closest('[data-writing-task]');
     if (writingTask && writingTask.dataset.writingTask !== state.writingTask) {
@@ -2426,111 +1994,17 @@ function bindEvents() {
     }
     if (event.target.closest('#finish-review')) endReview();
 
-    const scriptCard = event.target.closest('[data-script-term]');
-    const scriptAction = event.target.closest('[data-script-action]');
-    if (scriptCard && scriptAction) {
-      const term = scriptCard.dataset.scriptTerm;
-      if (scriptAction.dataset.scriptAction === 'known') markScriptTerm(term, 'known');
-      if (scriptAction.dataset.scriptAction === 'ignore') markScriptTerm(term, 'ignore');
-      if (scriptAction.dataset.scriptAction === 'add') addScriptTerms([term]);
-    }
-    if (event.target.closest('#script-enrich-selected')) enrichSelectedScriptTerms();
-    if (event.target.closest('#script-add-selected')) addScriptTerms(selectedScriptTerms());
-    if (event.target.closest('#script-known-selected')) markSelectedScriptTermsKnown();
-    if (event.target.closest('#script-assessment-start')) startAbilityAssessment();
-    const abilityAnswer = event.target.closest('[data-ability-answer]');
-    if (abilityAnswer) answerAbilityQuestion(abilityAnswer.dataset.abilityAnswer);
-    if (event.target.closest('#ability-close, #ability-complete-close')) closeAbilityAssessment();
-    if (event.target.closest('#script-reset-profile')) askConfirm(
-      'Đặt lại bộ lọc script?',
-      'Danh sách từ đã đánh dấu “Đã biết” và “Bỏ qua” sẽ được xóa. Từ vựng trong thư viện không bị ảnh hưởng.',
-      async () => {
-        state.data.settings.scriptKnownTerms = [];
-        state.data.settings.scriptIgnoredTerms = [];
-        await persist();
-        closeConfirm();
-        if ($('#script-input').value.trim()) runScriptAnalysis();
-        else renderScript();
-        showToast('Đã đặt lại bộ lọc phân tích script.');
-      },
-      'Đặt lại'
-    );
   });
 
   document.addEventListener('submit', (event) => {
     if (event.target.id === 'ai-answer-form') submitAIAnswer(event);
     if (event.target.id === 'fast-answer-form') submitFastAnswer(event);
-    if (event.target.id === 'script-form') { event.preventDefault(); runScriptAnalysis(); }
   });
 
   $('#hero-review-btn').addEventListener('click', () => navigate('review'));
   $('#home-notification').addEventListener('click', () => navigate('settings'));
   $('#word-form').addEventListener('submit', submitWord);
-  $('#speaking-form').addEventListener('submit', submitSpeakingError);
   $('#writing-entry-form').addEventListener('submit', submitWritingEntry);
-  $('#script-input').addEventListener('input', renderScript);
-  $('#script-results').addEventListener('change', (event) => {
-    if (!event.target.matches('.script-pick input[type="checkbox"]')) return;
-    const term = normalizedTerm(event.target.closest('[data-script-term]')?.dataset.scriptTerm);
-    if (!term) return;
-    if (event.target.checked) state.scriptSelectedTerms.add(term);
-    else state.scriptSelectedTerms.delete(term);
-    event.target.closest('.script-result-card')?.classList.toggle('selected', event.target.checked);
-    updateScriptToolbar();
-  });
-  $('#script-results').addEventListener('click', (event) => {
-    const card = event.target.closest('.script-result-card');
-    if (!card || event.target.closest('button, input, label, select, textarea, a')) return;
-    const checkbox = card.querySelector('.script-pick input[type="checkbox"]');
-    if (!checkbox) return;
-    checkbox.checked = !checkbox.checked;
-    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  $('#script-results').addEventListener('input', (event) => {
-    if (!event.target.matches('[data-script-definition]')) return;
-    const term = normalizedTerm(event.target.closest('[data-script-term]')?.dataset.scriptTerm);
-    const item = state.scriptResults.find((candidate) => normalizedTerm(candidate.term) === term);
-    if (item) item.definition = event.target.value;
-  });
-  $('#script-level').addEventListener('change', async (event) => {
-    state.data.settings.scriptLevel = event.target.value;
-    await persist();
-    if ($('#script-input').value.trim()) runScriptAnalysis();
-    else renderScript();
-    showToast(`Đã dùng hồ sơ ${event.target.options[event.target.selectedIndex].text}.`);
-  });
-  $('#script-filter-mode').addEventListener('change', async (event) => {
-    state.data.settings.scriptFilterMode = event.target.value;
-    await persist();
-    if ($('#script-input').value.trim()) runScriptAnalysis();
-    else renderScript();
-    showToast(`Đã chọn chế độ ${event.target.options[event.target.selectedIndex].text}.`);
-  });
-  $('#script-paste').addEventListener('click', async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) { showToast('Clipboard chưa có text để dán.', '!', true); return; }
-      $('#script-input').value = text;
-      runScriptAnalysis();
-    } catch {
-      showToast('Chưa đọc được clipboard. Bạn có thể dán bằng Ctrl+V.', '!', true);
-    }
-  });
-  $('#script-upload').addEventListener('click', () => $('#script-file-input').click());
-  $('#script-file-input').addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { showToast('Tệp phụ đề lớn hơn 2 MB. Hãy chọn đoạn ngắn hơn.', '!', true); event.target.value = ''; return; }
-    try {
-      $('#script-input').value = await file.text();
-      runScriptAnalysis();
-      showToast(`Đã đọc ${file.name}.`);
-    } catch {
-      showToast('Không đọc được tệp phụ đề này.', '!', true);
-    } finally {
-      event.target.value = '';
-    }
-  });
   $('#writing-content').addEventListener('input', (event) => { $('#writing-word-count').textContent = `${writingWordCount(event.target.value)} từ`; });
   $('#writing-type-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); saveWritingType(); } });
   $('#writing-errors').addEventListener('input', syncWritingErrorsFromDom);
@@ -2619,9 +2093,6 @@ function bindEvents() {
       renderDefinitionFields();
       $('#term-input').focus();
     }
-  });
-  $('#speaking-form').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#speaking-form').requestSubmit(); }
   });
   $('#search-input').addEventListener('input', renderLibrary);
   $('#mastery-filter').addEventListener('change', renderLibrary);
@@ -2766,14 +2237,12 @@ function bindEvents() {
   $('#history-modal').addEventListener('click', (event) => { if (event.target.id === 'history-modal') closeWordHistory(); });
   $('#streak-calendar-close').addEventListener('click', closeStreakCalendar);
   $('#streak-modal').addEventListener('click', (event) => { if (event.target.id === 'streak-modal') closeStreakCalendar(); });
-  $('#ability-modal').addEventListener('click', (event) => { if (event.target.id === 'ability-modal') closeAbilityAssessment(); });
 
   window.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); resetForm(); navigate('add'); }
     if (event.key === 'Escape' && !$('#confirm-modal').classList.contains('hidden')) closeConfirm();
     if (event.key === 'Escape' && !$('#history-modal').classList.contains('hidden')) closeWordHistory();
     if (event.key === 'Escape' && !$('#streak-modal').classList.contains('hidden')) closeStreakCalendar();
-    if (event.key === 'Escape' && !$('#ability-modal').classList.contains('hidden')) closeAbilityAssessment();
     if (state.view === 'review' && state.review && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const activeTag = document.activeElement?.tagName;
       if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
