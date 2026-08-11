@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('milim', {
   testLocalAI: () => ipcRenderer.invoke('ai:test-local'),
   checkAIAnswer: (payload) => ipcRenderer.invoke('ai:check-answer', payload),
   generateAIChallenge: (payload) => ipcRenderer.invoke('ai:generate-challenge', payload),
+  enrichScriptTerms: (payload) => ipcRenderer.invoke('ai:enrich-script-terms', payload),
   onAIStatus: (callback) => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on('ai:status-changed', listener);

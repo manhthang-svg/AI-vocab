@@ -10,8 +10,19 @@ const {
   normalizeChallenge,
   normalizeReviewResult,
   manualChallenge,
+  normalizeGlossary,
   manualReviewResult
 } = require('../src/ai-contract');
+
+test('normalizes contextual glossary entries and rejects unrelated terms', () => {
+  const result = normalizeGlossary({ items: [
+    { term: 'scrutinize', definition: 'xem xét kỹ lưỡng', part_of_speech: 'verb', example: 'We scrutinized the report.' },
+    { term: 'injected', definition: 'không thuộc yêu cầu', part_of_speech: 'verb' }
+  ] }, ['scrutinize'], 'local');
+  assert.deepEqual(result.items, [{
+    term: 'scrutinize', definition: 'xem xét kỹ lưỡng', partOfSpeech: 'verb', example: 'We scrutinized the report.'
+  }]);
+});
 const { LocalAIManager, MODEL, ENGINE } = require('../local-ai');
 
 test('rejects grading feedback that mixes in CJK scripts', () => {

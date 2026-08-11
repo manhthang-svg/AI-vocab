@@ -21,28 +21,6 @@ const WRITING_DEFAULT_TYPES = {
   ]
 };
 
-const SCRIPT_STOP_WORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'than', 'so', 'because', 'as', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'from', 'with', 'about', 'into', 'over', 'after', 'before', 'between', 'through',
-  'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'their', 'our', 'this', 'that', 'these', 'those',
-  'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does', 'did', 'done', 'have', 'has', 'had', 'having', 'will', 'would', 'can', 'could', 'may', 'might', 'must', 'should',
-  'not', 'no', 'yes', 'there', 'here', 'very', 'just', 'really', 'also', 'too', 'only', 'more', 'most', 'some', 'any', 'all', 'each', 'every', 'what', 'when', 'where', 'why', 'how', 'who', 'which',
-  'one', 'two', 'first', 'second', 'new', 'old', 'good', 'bad', 'big', 'small', 'time', 'day', 'year', 'people', 'thing', 'things', 'way', 'get', 'got', 'go', 'going', 'make', 'made', 'take', 'come'
-]);
-
-const SCRIPT_COMMON_WORDS = new Set([
-  'able', 'across', 'again', 'almost', 'already', 'always', 'another', 'around', 'back', 'best', 'better', 'both', 'bring', 'business', 'change', 'child', 'children', 'city', 'class', 'company',
-  'country', 'different', 'early', 'easy', 'enough', 'example', 'family', 'feel', 'find', 'friend', 'give', 'group', 'hand', 'hard', 'help', 'home', 'house', 'important', 'keep', 'kind', 'know',
-  'large', 'last', 'late', 'learn', 'life', 'little', 'long', 'look', 'lot', 'many', 'money', 'month', 'move', 'much', 'need', 'never', 'night', 'number', 'often', 'other', 'part', 'place',
-  'play', 'point', 'problem', 'public', 'question', 'right', 'room', 'school', 'seem', 'show', 'side', 'start', 'state', 'still', 'student', 'study', 'system', 'talk', 'tell', 'think', 'try',
-  'understand', 'use', 'want', 'week', 'work', 'world'
-]);
-
-const SCRIPT_PHRASES = [
-  'come up with', 'deal with', 'take advantage of', 'as a result', 'in terms of', 'be likely to', 'is likely to', 'are likely to', 'used to', 'get used to', 'look forward to',
-  'make sure', 'figure out', 'point out', 'carry out', 'put up with', 'run out of', 'end up', 'turn out', 'set up', 'break down', 'bring up', 'come across', 'keep up with',
-  'on the other hand', 'for instance', 'in addition', 'due to', 'according to', 'rather than', 'instead of'
-];
-
 const api = window.milim || {
   async loadData() {
     const saved = localStorage.getItem('milim-browser-data');
@@ -85,6 +63,7 @@ const api = window.milim || {
   async generateAIChallenge(payload) {
     return { vietnamese_sentence: `Hãy viết một câu tiếng Anh diễn đạt đúng ý: “${payload.savedDefinition}”`, suggested_answer: '', provider: 'manual', manual: true };
   },
+  async enrichScriptTerms() { return { items: [], provider: 'manual', manual: true }; },
   onAIStatus() { return () => {}; },
   async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
   async checkForUpdates() { return this.updateStatus(); },
@@ -113,6 +92,9 @@ const state = {
   aiStatus: null,
   updateStatus: null,
   scriptResults: [],
+  scriptAnalysisStats: null,
+  scriptSelectedTerms: new Set(),
+  scriptAiLoading: false,
   confirmAction: null,
   toastTimer: null
 };
@@ -409,6 +391,7 @@ function normalizeData(data) {
     aiUsage: { local: 0, gemini: 0, manual: 0 },
     scriptKnownTerms: [],
     scriptIgnoredTerms: [],
+    scriptLevel: 'auto',
     ...(data?.settings || {})
   };
   settings.fsrsRetention = normalizedRetention(settings.fsrsRetention);
@@ -418,6 +401,7 @@ function normalizeData(data) {
   settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
   settings.scriptKnownTerms = Array.isArray(settings.scriptKnownTerms) ? [...new Set(settings.scriptKnownTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
   settings.scriptIgnoredTerms = Array.isArray(settings.scriptIgnoredTerms) ? [...new Set(settings.scriptIgnoredTerms.map(normalizedTerm).filter(Boolean))].slice(-2000) : [];
+  settings.scriptLevel = ['auto', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(settings.scriptLevel) ? settings.scriptLevel : 'auto';
   return {
     version: 5,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
@@ -496,18 +480,7 @@ function normalizedTerm(value) {
 }
 
 function simpleLemma(value) {
-  let word = normalizedTerm(value).replace(/^'+|'+$/g, '');
-  if (word.length > 4 && word.endsWith('ies')) word = `${word.slice(0, -3)}y`;
-  else if (word.length > 5 && word.endsWith('ing')) word = word.slice(0, -3);
-  else if (word.length > 4 && word.endsWith('ed')) word = word.slice(0, -2);
-  else if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) word = word.slice(0, -1);
-  return word;
-}
-
-function scriptSentenceFor(text, term) {
-  const normalized = normalizedTerm(term);
-  const sentences = String(text || '').replace(/\s+/g, ' ').match(/[^.!?]+[.!?]?/g) || [];
-  return (sentences.find((sentence) => normalizedTerm(sentence).includes(normalized)) || sentences[0] || '').trim().slice(0, 420);
+  return globalThis.MilimScriptAnalyzer?.lemma?.(value) || normalizedTerm(value);
 }
 
 function wordKnowledgeMap() {
@@ -527,58 +500,16 @@ function wordKnowledgeMap() {
   return map;
 }
 
-function scriptDifficulty(term) {
-  const words = normalizedTerm(term).split(' ');
-  if (words.length > 1) return Math.min(1, 0.52 + words.length * 0.08);
-  const word = words[0] || '';
-  let score = SCRIPT_COMMON_WORDS.has(word) ? 0.16 : 0.45;
-  if (word.length >= 8) score += 0.18;
-  if (word.length >= 11) score += 0.12;
-  if (/(tion|sion|ment|ance|ence|ity|ship|ous|ive|ial|ary|ize|ise|ate|ify|ward|wise)$/.test(word)) score += 0.15;
-  if (/^(un|in|im|ir|dis|mis|over|under|inter|trans|pre|post|sub)/.test(word)) score += 0.08;
-  return Math.max(0.05, Math.min(1, score));
-}
-
 function analyzeScriptText(text) {
-  const source = String(text || '').trim();
-  if (!source) return [];
-  const knownTerms = new Set(state.data.settings.scriptKnownTerms || []);
-  const ignoredTerms = new Set(state.data.settings.scriptIgnoredTerms || []);
-  const learned = wordKnowledgeMap();
-  const tokens = (source.toLowerCase().match(/[a-z][a-z'-]{1,}/g) || []).map(simpleLemma).filter(Boolean);
-  const counts = new Map();
-  tokens.forEach((token) => {
-    if (token.length < 3 || SCRIPT_STOP_WORDS.has(token) || /^\d+$/.test(token)) return;
-    counts.set(token, (counts.get(token) || 0) + 1);
+  const analyzer = globalThis.MilimScriptAnalyzer;
+  if (!analyzer) return { items: [], stats: { tokens: 0, sentences: 0, profileLevel: 'A1' } };
+  return analyzer.analyze(text, {
+    profileLevel: state.data.settings.scriptLevel,
+    knownTerms: state.data.settings.scriptKnownTerms,
+    ignoredTerms: state.data.settings.scriptIgnoredTerms,
+    knowledge: wordKnowledgeMap(),
+    librarySize: state.data.words.length
   });
-  SCRIPT_PHRASES.forEach((phrase) => {
-    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const hits = source.toLowerCase().match(new RegExp(`\\b${escaped}\\b`, 'g')) || [];
-    if (hits.length) counts.set(phrase, (counts.get(phrase) || 0) + hits.length);
-  });
-  return [...counts.entries()].map(([term, count]) => {
-    const knowledge = learned.get(term) || learned.get(simpleLemma(term));
-    const alreadyKnown = knownTerms.has(term);
-    const ignored = ignoredTerms.has(term);
-    const novelty = knowledge ? 0 : 0.32;
-    const weakMemory = knowledge ? Math.min(0.38, (knowledge.lapses * 0.12) + (knowledge.stability < 7 ? 0.12 : 0) - (knowledge.stability >= 21 ? 0.22 : 0)) : 0;
-    const frequencyBoost = Math.min(0.18, count * 0.035);
-    const difficulty = scriptDifficulty(term);
-    const score = Math.max(0, Math.min(1, difficulty * 0.42 + novelty + weakMemory + frequencyBoost - (alreadyKnown ? 0.55 : 0) - (ignored ? 0.75 : 0)));
-    const reasons = [];
-    if (!knowledge) reasons.push('chưa có trong Milim');
-    if (knowledge?.lapses) reasons.push(`từng quên ${knowledge.lapses} lần`);
-    if (knowledge?.stability >= 21) reasons.push('đã nhớ khá chắc');
-    if (term.includes(' ')) reasons.push('cụm từ đáng chú ý');
-    if (count > 1) reasons.push(`xuất hiện ${count} lần`);
-    if (difficulty >= 0.65) reasons.push('độ khó cao');
-    if (alreadyKnown) reasons.push('bạn đã đánh dấu biết');
-    if (ignored) reasons.push('đã bỏ qua');
-    return { term, count, score, difficulty, known: Boolean(knowledge || alreadyKnown), ignored, context: scriptSentenceFor(source, term), reasons };
-  })
-    .filter((item) => !item.ignored && item.score >= 0.18)
-    .sort((a, b) => b.score - a.score || b.count - a.count)
-    .slice(0, 60);
 }
 
 function scriptScoreLabel(score) {
@@ -763,18 +694,26 @@ function renderScript() {
   $('#script-input-meta').textContent = `${wordCount} từ`;
   const knownCount = state.data.settings.scriptKnownTerms.length;
   const ignoredCount = state.data.settings.scriptIgnoredTerms.length;
-  $('#script-profile-level').textContent = `${state.data.words.length} từ trong Milim`;
-  $('#script-profile-meta').textContent = `${knownCount} từ đã đánh dấu biết · ${ignoredCount} từ đã bỏ qua · ${state.data.words.filter((word) => word.srs.lapses > 0).length} từ từng quên`;
+  const profileLevel = state.scriptAnalysisStats?.profileLevel || globalThis.MilimScriptAnalyzer?.estimateProfileLevel(state.data.settings.scriptLevel, knownCount, state.data.words.length) || 'A1';
+  $('#script-level').value = state.data.settings.scriptLevel;
+  $('#script-profile-level').textContent = `${profileLevel} · ${state.data.words.length} từ trong Milim`;
+  $('#script-profile-meta').textContent = `${knownCount} từ đã biết · ${ignoredCount} từ đã bỏ qua · ${state.data.words.filter((word) => word.srs.lapses > 0).length} từ từng quên`;
+  $('#script-reset-profile').classList.toggle('hidden', knownCount + ignoredCount === 0);
   const results = state.scriptResults || [];
-  $('#script-results-caption').textContent = results.length ? `${results.length} gợi ý, đã sắp theo khả năng bạn chưa biết.` : 'Dán một đoạn script rồi bấm phân tích.';
-  $('#script-add-selected').classList.toggle('hidden', !results.length);
-  $('#script-results').innerHTML = results.length ? results.map((item, index) => `
+  const stats = state.scriptAnalysisStats;
+  $('#script-results-caption').textContent = results.length
+    ? `${results.length} gợi ý từ ${stats?.tokens || wordCount} từ · ưu tiên theo hồ sơ ${profileLevel}.`
+    : 'Dán một đoạn script rồi bấm phân tích.';
+  $('#script-results').innerHTML = results.length ? results.map((item) => `
     <article class="script-result-card" data-script-term="${escapeHtml(item.term)}">
-      <label class="script-pick"><input type="checkbox" ${index < 8 ? 'checked' : ''}/><span></span></label>
+      <label class="script-pick" title="Chọn ${escapeHtml(item.term)}"><input type="checkbox" aria-label="Chọn ${escapeHtml(item.term)}" ${state.scriptSelectedTerms.has(normalizedTerm(item.term)) ? 'checked' : ''}/><span>✓</span></label>
       <div class="script-result-main">
-        <div class="script-result-head"><strong>${escapeHtml(item.term)}</strong><b>${scriptScoreLabel(item.score)}</b></div>
-        <p>${escapeHtml(item.context || 'Không tìm thấy câu gốc rõ ràng.')}</p>
+        <div class="script-result-head"><strong>${escapeHtml(item.term)}</strong><b>${escapeHtml(item.cefr || '—')}</b><i class="pos-label pos-${escapeHtml(item.partOfSpeech || 'other')}">${escapeHtml(posName(item.partOfSpeech || 'other'))}</i><em>${scriptScoreLabel(item.score)}</em></div>
+        ${item.forms?.length && !item.forms.includes(item.term) ? `<p class="script-word-form">Trong script: ${escapeHtml(item.forms.join(', '))}</p>` : ''}
+        <p class="script-context">“${escapeHtml(item.context || 'Không tìm thấy câu gốc rõ ràng.')}”</p>
         <div class="script-reasons">${item.reasons.slice(0, 4).map((reason) => `<span>${escapeHtml(reason)}</span>`).join('')}</div>
+        <label class="script-definition"><span>NGHĨA THEO NGỮ CẢNH</span><input data-script-definition maxlength="800" value="${escapeHtml(item.definition || '')}" placeholder="Nhập nghĩa hoặc dùng AI tạo nghĩa..." /></label>
+        ${item.example ? `<p class="script-example"><span>EXAMPLE</span>${escapeHtml(item.example)}</p>` : ''}
       </div>
       <div class="script-result-actions">
         <small>${item.count} lần · ${Math.round(item.score * 100)}%</small>
@@ -784,14 +723,70 @@ function renderScript() {
       </div>
     </article>
   `).join('') : emptyState('Chưa có gợi ý nào', 'Milim sẽ bóc từ/cụm đáng học từ script bạn dán vào.');
+  updateScriptToolbar();
   renderGlobal();
 }
 
 function runScriptAnalysis() {
   const input = $('#script-input');
-  state.scriptResults = analyzeScriptText(input.value);
+  const analysis = analyzeScriptText(input.value);
+  state.scriptResults = analysis.items;
+  state.scriptAnalysisStats = analysis.stats;
+  state.scriptSelectedTerms = new Set(state.scriptResults.slice(0, 8).map((item) => normalizedTerm(item.term)));
+  $('#script-ai-status').classList.add('hidden');
+  $('#script-ai-status').textContent = '';
   renderScript();
   if (!state.scriptResults.length) showToast('Chưa tìm thấy từ/cụm đáng học trong đoạn này.', '!', true);
+}
+
+function updateScriptToolbar() {
+  const available = new Set((state.scriptResults || []).map((item) => normalizedTerm(item.term)));
+  state.scriptSelectedTerms = new Set([...state.scriptSelectedTerms].filter((term) => available.has(term)));
+  const count = state.scriptSelectedTerms.size;
+  const hasResults = available.size > 0;
+  const enrich = $('#script-enrich-selected');
+  const add = $('#script-add-selected');
+  enrich.classList.toggle('hidden', !hasResults);
+  add.classList.toggle('hidden', !hasResults);
+  enrich.disabled = state.scriptAiLoading || count === 0;
+  add.disabled = state.scriptAiLoading || count === 0;
+  enrich.textContent = state.scriptAiLoading ? 'AI đang tạo nghĩa…' : `Tạo nghĩa bằng AI${count ? ` · ${count}` : ''} ✦`;
+  add.textContent = `Thêm mục đã chọn${count ? ` · ${count}` : ''}`;
+}
+
+async function enrichSelectedScriptTerms() {
+  if (state.scriptAiLoading) return;
+  const selected = selectedScriptTerms();
+  if (!selected.length) { showToast('Hãy tích ít nhất một từ trước.', '!', true); return; }
+  const selectedItems = selected.map((term) => state.scriptResults.find((item) => normalizedTerm(item.term) === term)).filter(Boolean);
+  const missingDefinitions = selectedItems.filter((item) => !String(item.definition || '').trim());
+  const items = (missingDefinitions.length ? missingDefinitions : selectedItems).slice(0, 16);
+  state.scriptAiLoading = true;
+  const status = $('#script-ai-status');
+  status.classList.remove('hidden', 'error');
+  status.textContent = items.length < selected.length ? `Đang tạo nghĩa cho 16/${selected.length} mục đầu tiên…` : `Đang tạo nghĩa cho ${items.length} mục…`;
+  updateScriptToolbar();
+  try {
+    const result = await api.enrichScriptTerms({
+      profileLevel: state.scriptAnalysisStats?.profileLevel || state.data.settings.scriptLevel,
+      items: items.map(({ term, context, partOfSpeech }) => ({ term, context, partOfSpeech }))
+    });
+    if (!result?.items?.length) throw new Error('AI cục bộ hoặc Gemini chưa sẵn sàng. Bạn vẫn có thể tự nhập nghĩa.');
+    const enriched = new Map(result.items.map((item) => [normalizedTerm(item.term), item]));
+    state.scriptResults = state.scriptResults.map((item) => {
+      const addition = enriched.get(normalizedTerm(item.term));
+      return addition ? { ...item, ...addition, term: item.term } : item;
+    });
+    status.textContent = `Đã tạo nghĩa cho ${enriched.size} mục bằng ${aiProviderName(result.provider)}. Hãy đọc lại trước khi thêm.`;
+    renderScript();
+  } catch (error) {
+    status.classList.add('error');
+    status.textContent = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+    showToast('Chưa tạo được nghĩa bằng AI. Bạn có thể nhập nghĩa thủ công.', '!', true);
+  } finally {
+    state.scriptAiLoading = false;
+    updateScriptToolbar();
+  }
 }
 
 async function markScriptTerm(term, mode) {
@@ -800,6 +795,7 @@ async function markScriptTerm(term, mode) {
   const field = mode === 'known' ? 'scriptKnownTerms' : 'scriptIgnoredTerms';
   state.data.settings[field] = [...new Set([...(state.data.settings[field] || []), key])].slice(-2000);
   state.scriptResults = state.scriptResults.filter((item) => normalizedTerm(item.term) !== key);
+  state.scriptSelectedTerms.delete(key);
   await persist();
   renderScript();
   showToast(mode === 'known' ? 'Milim sẽ ít gợi ý từ này hơn.' : 'Đã bỏ qua từ này.');
@@ -808,18 +804,28 @@ async function markScriptTerm(term, mode) {
 async function addScriptTerms(terms) {
   const uniqueTerms = [...new Set(terms.map(normalizedTerm).filter(Boolean))];
   if (!uniqueTerms.length) return;
+  const missing = uniqueTerms.map((term) => state.scriptResults.find((item) => normalizedTerm(item.term) === term)).filter((item) => item && !String(item.definition || '').trim());
+  if (missing.length) {
+    const firstCard = $(`[data-script-term="${CSS.escape(missing[0].term)}"]`);
+    firstCard?.querySelector('[data-script-definition]')?.focus();
+    showToast(`Còn ${missing.length} mục chưa có nghĩa. Hãy nhập hoặc dùng AI tạo nghĩa.`, '!', true);
+    return;
+  }
   const existing = new Set(state.data.words.map((word) => normalizedTerm(word.term)));
   const now = new Date().toISOString();
   const additions = uniqueTerms.filter((term) => !existing.has(term)).map((term) => {
     const result = state.scriptResults.find((item) => normalizedTerm(item.term) === term);
     const context = result?.context || '';
+    const partOfSpeech = result?.partOfSpeech || (term.includes(' ') ? 'phrase' : 'other');
+    const definition = String(result?.definition || '').trim();
+    const noteParts = [context ? `Context từ script:\n${context}` : '', result?.example ? `Example:\n${result.example}` : ''].filter(Boolean);
     return normalizeWord({
       id: uid(),
       term,
-      definition: 'Cần bổ sung nghĩa.',
-      definitions: [{ partOfSpeech: term.includes(' ') ? 'phrase' : 'other', definition: 'Cần bổ sung nghĩa.' }],
-      partsOfSpeech: [term.includes(' ') ? 'phrase' : 'other'],
-      note: context ? `Context từ script:\n${context}` : 'Thêm từ tính năng phân tích script.',
+      definition,
+      definitions: [{ partOfSpeech, definition }],
+      partsOfSpeech: [partOfSpeech],
+      note: noteParts.join('\n\n') || 'Thêm từ tính năng phân tích script.',
       createdAt: now,
       createdDate: localDate(),
       srs: freshSrs(now)
@@ -828,6 +834,7 @@ async function addScriptTerms(terms) {
   if (!additions.length) { showToast('Những mục này đã có trong bộ từ của bạn.', '!', true); return; }
   state.data.words.push(...additions);
   state.scriptResults = state.scriptResults.filter((item) => !uniqueTerms.includes(normalizedTerm(item.term)));
+  uniqueTerms.forEach((term) => state.scriptSelectedTerms.delete(term));
   await persist();
   renderScript();
   renderRecentAdded();
@@ -835,7 +842,7 @@ async function addScriptTerms(terms) {
 }
 
 function selectedScriptTerms() {
-  return $$('.script-result-card').filter((card) => card.querySelector('input[type="checkbox"]')?.checked).map((card) => card.dataset.scriptTerm);
+  return [...state.scriptSelectedTerms];
 }
 
 function renderPosOptions() {
@@ -2233,7 +2240,22 @@ function bindEvents() {
       if (scriptAction.dataset.scriptAction === 'ignore') markScriptTerm(term, 'ignore');
       if (scriptAction.dataset.scriptAction === 'add') addScriptTerms([term]);
     }
+    if (event.target.closest('#script-enrich-selected')) enrichSelectedScriptTerms();
     if (event.target.closest('#script-add-selected')) addScriptTerms(selectedScriptTerms());
+    if (event.target.closest('#script-reset-profile')) askConfirm(
+      'Đặt lại bộ lọc script?',
+      'Danh sách từ đã đánh dấu “Đã biết” và “Bỏ qua” sẽ được xóa. Từ vựng trong thư viện không bị ảnh hưởng.',
+      async () => {
+        state.data.settings.scriptKnownTerms = [];
+        state.data.settings.scriptIgnoredTerms = [];
+        await persist();
+        closeConfirm();
+        if ($('#script-input').value.trim()) runScriptAnalysis();
+        else renderScript();
+        showToast('Đã đặt lại bộ lọc phân tích script.');
+      },
+      'Đặt lại'
+    );
   });
 
   document.addEventListener('submit', (event) => {
@@ -2248,6 +2270,27 @@ function bindEvents() {
   $('#speaking-form').addEventListener('submit', submitSpeakingError);
   $('#writing-entry-form').addEventListener('submit', submitWritingEntry);
   $('#script-input').addEventListener('input', renderScript);
+  $('#script-results').addEventListener('change', (event) => {
+    if (!event.target.matches('.script-pick input[type="checkbox"]')) return;
+    const term = normalizedTerm(event.target.closest('[data-script-term]')?.dataset.scriptTerm);
+    if (!term) return;
+    if (event.target.checked) state.scriptSelectedTerms.add(term);
+    else state.scriptSelectedTerms.delete(term);
+    updateScriptToolbar();
+  });
+  $('#script-results').addEventListener('input', (event) => {
+    if (!event.target.matches('[data-script-definition]')) return;
+    const term = normalizedTerm(event.target.closest('[data-script-term]')?.dataset.scriptTerm);
+    const item = state.scriptResults.find((candidate) => normalizedTerm(candidate.term) === term);
+    if (item) item.definition = event.target.value;
+  });
+  $('#script-level').addEventListener('change', async (event) => {
+    state.data.settings.scriptLevel = event.target.value;
+    await persist();
+    if ($('#script-input').value.trim()) runScriptAnalysis();
+    else renderScript();
+    showToast(`Đã dùng hồ sơ ${event.target.options[event.target.selectedIndex].text}.`);
+  });
   $('#script-paste').addEventListener('click', async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -2256,6 +2299,21 @@ function bindEvents() {
       runScriptAnalysis();
     } catch {
       showToast('Chưa đọc được clipboard. Bạn có thể dán bằng Ctrl+V.', '!', true);
+    }
+  });
+  $('#script-upload').addEventListener('click', () => $('#script-file-input').click());
+  $('#script-file-input').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { showToast('Tệp phụ đề lớn hơn 2 MB. Hãy chọn đoạn ngắn hơn.', '!', true); event.target.value = ''; return; }
+    try {
+      $('#script-input').value = await file.text();
+      runScriptAnalysis();
+      showToast(`Đã đọc ${file.name}.`);
+    } catch {
+      showToast('Không đọc được tệp phụ đề này.', '!', true);
+    } finally {
+      event.target.value = '';
     }
   });
   $('#writing-content').addEventListener('input', (event) => { $('#writing-word-count').textContent = `${writingWordCount(event.target.value)} từ`; });
