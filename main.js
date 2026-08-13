@@ -42,7 +42,7 @@ const emptyData = () => ({
   version: 5,
   words: [],
   speakingErrors: [],
-  writing: { types: DEFAULT_WRITING_TYPES, entries: [] },
+  writing: { types: DEFAULT_WRITING_TYPES, entries: [], notes: [] },
   reviewSession: null,
   settings: {
     notifications: true,
@@ -455,7 +455,7 @@ function normalizeData(value) {
     speakingErrors: Array.isArray(value.speakingErrors) ? value.speakingErrors : [],
     writing: value.writing && typeof value.writing === 'object'
       ? value.writing
-      : { types: DEFAULT_WRITING_TYPES, entries: [] },
+      : { types: DEFAULT_WRITING_TYPES, entries: [], notes: [] },
     reviewSession: value.reviewSession && typeof value.reviewSession === 'object' ? value.reviewSession : null,
     settings: {
       ...fallback.settings,
@@ -606,6 +606,10 @@ function createWindow() {
             writingJournalSaved: false,
             writingJournalDisclosure: false,
             writingEntryEdited: false,
+            writingSubmenu: false,
+            writingTypeVisible: false,
+            writingNoteCrud: false,
+            writingNotesIsolated: false,
             retentionControl: false,
             weeklyStreakVisible: false,
             localAIControls: false,
@@ -631,10 +635,12 @@ function createWindow() {
             && document.querySelector('#ai-resource-mode')?.value === 'balanced'
             && document.querySelector('#local-ai-status')?.innerText.includes('sẵn sàng');
           document.querySelector('[data-view="writing"]').click();
+          result.writingSubmenu = document.querySelectorAll('.nav-subitem[data-writing-section]').length === 3
+            && document.querySelector('[data-writing-section="task1"]').classList.contains('active');
           result.writingMinimalLayout = document.querySelector('#writing-entry-form').classList.contains('hidden')
             && document.querySelector('#writing-types-card').classList.contains('hidden')
             && !document.querySelector('#writing-history-section').classList.contains('hidden');
-          document.querySelector('[data-writing-task="task2"]').click();
+          document.querySelector('[data-writing-section="task2"]').click();
           document.querySelector('#manage-writing-types').click();
           result.writingMinimalLayout = result.writingMinimalLayout
             && !document.querySelector('#writing-types-card').classList.contains('hidden')
@@ -672,6 +678,9 @@ function createWindow() {
             && document.body.innerText.includes('6.5')
             && document.body.innerText.includes('LỖI ĐÃ GHI')
             && document.body.innerText.includes('SỐ TỪ');
+          const writingIdentity = document.querySelector('.writing-entry-identity');
+          result.writingTypeVisible = Boolean(writingIdentity?.querySelector('strong')?.innerText.trim())
+            && (writingIdentity?.innerText || '').toLocaleLowerCase().includes('task 2');
           result.meaningfulStreakReached = document.querySelector('#sidebar-streak')?.innerText === '1'
             && Boolean(document.querySelector('#sidebar-streak-week .streak-day.today.learned'));
           const writingCard = document.querySelector('.writing-entry-card');
@@ -688,6 +697,26 @@ function createWindow() {
           result.writingEntryEdited = editLoaded
             && document.querySelectorAll('.writing-entry-card').length === 1
             && document.body.innerText.includes('7');
+          document.querySelector('[data-writing-section="notes"]').click();
+          result.writingNotesIsolated = !document.querySelector('#writing-notes-view').classList.contains('hidden')
+            && document.querySelector('#writing-history-section').classList.contains('hidden')
+            && document.querySelector('#writing-entry-form').classList.contains('hidden');
+          document.querySelector('#new-writing-note').click();
+          document.querySelector('#writing-note-category').value = 'Cấu trúc câu';
+          document.querySelector('#writing-note-title').value = 'Câu nhượng bộ';
+          document.querySelector('#writing-note-content').value = 'Although + clause, main clause.';
+          document.querySelector('#writing-note-form').requestSubmit();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const noteSaved = document.querySelector('.writing-note-card')?.innerText.includes('Câu nhượng bộ');
+          document.querySelector('[data-writing-note-action="edit"]')?.click();
+          document.querySelector('#writing-note-title').value = 'Cấu trúc nhượng bộ';
+          document.querySelector('#writing-note-form').requestSubmit();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const noteEdited = document.querySelector('.writing-note-card')?.innerText.includes('Cấu trúc nhượng bộ');
+          document.querySelector('[data-writing-note-action="delete"]')?.click();
+          document.querySelector('#confirm-accept').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          result.writingNoteCrud = noteSaved && noteEdited && !document.querySelector('.writing-note-card');
           document.querySelector('[data-view="library"]').click();
           await new Promise(resolve => setTimeout(resolve, 50));
           document.querySelector('[data-review-date]')?.click();
@@ -761,7 +790,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.writingSubmenu || !result.writingTypeVisible || !result.writingNoteCrud || !result.writingNotesIsolated || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

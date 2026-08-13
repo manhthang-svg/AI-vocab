@@ -41,10 +41,17 @@
             <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8m-8 4h5"/></svg>
             <span>Ôn tập</span><b class="due-badge" id="nav-due-count">0</b>
           </button>
-          <button class="nav-item" data-view="writing">
-            <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/></svg>
-            <span>Writing Journal</span>
-          </button>
+          <div class="nav-group writing-nav-group open">
+            <button class="nav-item nav-parent" id="writing-menu-toggle" type="button" aria-expanded="true">
+              <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/></svg>
+              <span>Writing Journal</span><b class="nav-chevron">⌄</b>
+            </button>
+            <div class="nav-submenu" id="writing-submenu">
+              <button class="nav-subitem active" type="button" data-view="writing" data-writing-section="task1"><i>1</i><span>Task 1</span></button>
+              <button class="nav-subitem" type="button" data-view="writing" data-writing-section="task2"><i>2</i><span>Task 2</span></button>
+              <button class="nav-subitem" type="button" data-view="writing" data-writing-section="notes"><i>✎</i><span>Writing Notes</span></button>
+            </div>
+          </div>
           <button class="nav-item" data-view="stats">
             <svg viewBox="0 0 24 24"><path d="M5 20v-6h3v6zm6 0V7h3v13zm6 0V11h3v9"/></svg>
             <span>Thống kê</span>
@@ -118,8 +125,7 @@
         </section>
 
         <section class="view" id="view-writing">
-          <div class="page-heading writing-heading"><div><p class="eyebrow">IELTS WRITING JOURNAL</p><h1>Nhật ký luyện viết</h1><p>Lưu đề, bài làm, điểm và những điều cần sửa — hoàn toàn offline.</p></div><div class="writing-heading-actions"><button class="soft-btn" id="manage-writing-types">Quản lý dạng bài</button><button class="primary-btn" id="new-writing-entry">+ Bài viết mới</button></div></div>
-          <div class="writing-task-tabs" role="tablist"><button class="active" data-writing-task="task1">Task 1</button><button data-writing-task="task2">Task 2</button></div>
+          <div class="page-heading writing-heading" id="writing-journal-heading"><div><p class="eyebrow">IELTS WRITING JOURNAL · <span id="writing-heading-task">TASK 1</span></p><h1 id="writing-heading-title">Nhật ký Writing Task 1</h1><p id="writing-heading-description">Lưu đề, bài làm, điểm và những điều cần sửa — hoàn toàn offline.</p></div><div class="writing-heading-actions"><button class="soft-btn" id="manage-writing-types">Quản lý dạng bài</button><button class="primary-btn" id="new-writing-entry">+ Bài viết mới</button></div></div>
 
           <section class="writing-types-card card hidden" id="writing-types-card">
             <div class="writing-section-head"><div><span>DẠNG BÀI</span><h2 id="writing-types-title">Các dạng Task 1</h2></div><p>Thêm, đổi tên hoặc xóa theo cách bạn phân loại bài.</p></div>
@@ -148,6 +154,21 @@
           </form>
 
           <section class="writing-history-section" id="writing-history-section"><div class="section-heading compact"><div><h2>Lịch sử làm bài</h2><p id="writing-history-caption"></p></div></div><div class="writing-journal" id="writing-journal"></div></section>
+
+          <section class="writing-notes-view hidden" id="writing-notes-view">
+            <div class="page-heading writing-heading"><div><p class="eyebrow">IELTS WRITING KNOWLEDGE</p><h1>Sổ kiến thức Writing</h1><p>Lưu cách mở bài, cấu trúc câu, từ nối và những công thức bạn muốn dùng lại.</p></div><button class="primary-btn" id="new-writing-note">+ Ghi chú mới</button></div>
+            <form class="writing-note-form card hidden" id="writing-note-form">
+              <div class="writing-form-head"><div><span id="writing-note-form-eyebrow">GHI CHÚ MỚI</span><h2 id="writing-note-form-title">Thêm kiến thức Writing</h2></div><button type="button" class="text-btn" id="cancel-writing-note">Đóng</button></div>
+              <div class="writing-note-meta">
+                <label><span>CHỦ ĐỀ</span><select id="writing-note-category"><option>Mở bài</option><option>Overview</option><option>Thân bài</option><option>Kết bài</option><option>Cấu trúc câu</option><option>Từ vựng & từ nối</option><option>Khác</option></select></label>
+                <label><span>TIÊU ĐỀ</span><input id="writing-note-title" maxlength="160" placeholder="Ví dụ: Cách paraphrase mở bài Task 2" /></label>
+              </div>
+              <label class="field writing-note-content"><span>NỘI DUNG KIẾN THỨC</span><textarea id="writing-note-content" rows="12" maxlength="20000" placeholder="Ghi công thức, ví dụ, lưu ý và cách áp dụng..."></textarea></label>
+              <div class="writing-submit-row"><p>Ghi chú được lưu cục bộ và có trong tệp sao lưu.</p><button class="primary-btn" type="submit" id="save-writing-note">Lưu ghi chú</button></div>
+            </form>
+            <div class="writing-notes-toolbar"><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="writing-notes-search" placeholder="Tìm tiêu đề hoặc nội dung..." /></label><select id="writing-notes-filter"><option value="all">Tất cả chủ đề</option><option>Mở bài</option><option>Overview</option><option>Thân bài</option><option>Kết bài</option><option>Cấu trúc câu</option><option>Từ vựng & từ nối</option><option>Khác</option></select></div>
+            <div class="writing-notes-list" id="writing-notes-list"></div>
+          </section>
         </section>
 
         <section class="view" id="view-stats">
@@ -182,7 +203,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon">↓</span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon">⌁</span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.6.1</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.7.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>

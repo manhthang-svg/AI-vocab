@@ -78,8 +78,10 @@ const state = {
   selectedPos: [],
   editingId: null,
   writingTask: 'task1',
+  writingSection: 'task1',
   editingWritingId: null,
   editingWritingTypeId: null,
+  editingWritingNoteId: null,
   writingEditorOpen: false,
   writingManageTypesOpen: false,
   writingErrors: [],
@@ -370,7 +372,15 @@ function normalizeWriting(value) {
     createdDate: /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.createdDate || '')) ? entry.createdDate : localDate(entry?.createdAt || new Date()),
     updatedAt: entry?.updatedAt || null
   })) : [];
-  return { types, entries };
+  const notes = Array.isArray(source?.notes) ? source.notes.map((note) => ({
+    id: String(note?.id || uid()),
+    category: String(note?.category || 'Khác').trim().slice(0, 100) || 'Khác',
+    title: String(note?.title || '').trim().slice(0, 160),
+    content: String(note?.content || '').trim().slice(0, 20000),
+    createdAt: note?.createdAt || new Date().toISOString(),
+    updatedAt: note?.updatedAt || note?.createdAt || new Date().toISOString()
+  })).filter((note) => note.title && note.content) : [];
+  return { types, entries, notes };
 }
 
 function normalizeData(data) {
@@ -597,6 +607,7 @@ function navigate(view) {
   state.view = view;
   $$('.view').forEach((node) => node.classList.toggle('active', node.id === `view-${view}`));
   $$('.nav-item[data-view]').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
+  $('#writing-menu-toggle').classList.toggle('active', view === 'writing');
   $('.content').scrollTo({ top: 0, behavior: 'smooth' });
   if (view === 'home') renderHome();
   if (view === 'add') renderRecentAdded();
@@ -935,7 +946,7 @@ function renderWritingJournal() {
           <summary class="writing-entry-summary" aria-label="Mở chi tiết bài Writing">
             <div class="writing-entry-thumb">${entry.promptImage ? `<img loading="lazy" src="${escapeHtml(entry.promptImage)}" alt="Ảnh đề ${escapeHtml(typeName)}"/>` : '<span>Chưa có ảnh đề</span>'}</div>
             <div class="writing-entry-overview">
-              <strong class="writing-entry-date"><span>NGÀY LÀM BÀI</span>${escapeHtml(dateLabel(entry.createdDate, true))}</strong>
+              <div class="writing-entry-identity"><strong>${escapeHtml(typeName)}</strong><span>${escapeHtml(writingTaskLabel(entry.task))}</span><time>${escapeHtml(dateLabel(entry.createdDate, true))}</time></div>
               <div class="writing-entry-stats">
                 ${entry.score !== '' ? `<span class="writing-entry-band"><small>BAND</small><b>${escapeHtml(entry.score)}</b></span>` : '<span><small>BAND</small><b>—</b></span>'}
                 <span><small>SỐ TỪ</small><b>${writingWordCount(entry.content)}</b></span>
@@ -954,7 +965,25 @@ function renderWritingJournal() {
 }
 
 function renderWriting() {
-  $$('[data-writing-task]').forEach((button) => button.classList.toggle('active', button.dataset.writingTask === state.writingTask));
+  const notesMode = state.writingSection === 'notes';
+  $$('.nav-subitem[data-writing-section]').forEach((button) => button.classList.toggle('active', button.dataset.writingSection === state.writingSection));
+  $('#writing-menu-toggle').classList.toggle('active', state.view === 'writing');
+  $('#writing-journal-heading').classList.toggle('hidden', notesMode);
+  $('#writing-notes-view').classList.toggle('hidden', !notesMode);
+  if (notesMode) {
+    $('#writing-types-card').classList.add('hidden');
+    $('#writing-entry-form').classList.add('hidden');
+    $('#writing-history-section').classList.add('hidden');
+    renderWritingNotes();
+    renderGlobal();
+    return;
+  }
+  state.writingTask = state.writingSection === 'task2' ? 'task2' : 'task1';
+  $('#writing-heading-task').textContent = writingTaskLabel().toUpperCase();
+  $('#writing-heading-title').textContent = `Nhật ký Writing ${writingTaskLabel()}`;
+  $('#writing-heading-description').textContent = state.writingTask === 'task1'
+    ? 'Lưu đề biểu đồ, bài làm, band và lỗi sai của riêng Task 1.'
+    : 'Lưu đề essay, bài làm, band và lỗi sai của riêng Task 2.';
   $('#writing-types-card').classList.toggle('hidden', !state.writingManageTypesOpen);
   $('#writing-entry-form').classList.toggle('hidden', !state.writingEditorOpen);
   $('#writing-history-section').classList.toggle('hidden', state.writingManageTypesOpen || state.writingEditorOpen);
@@ -974,6 +1003,81 @@ function renderWriting() {
   if (!$('#writing-date').value) $('#writing-date').value = localDate();
   $('#writing-word-count').textContent = `${writingWordCount()} từ`;
   renderGlobal();
+}
+
+function renderWritingNotes() {
+  const formOpen = Boolean(state.editingWritingNoteId) || !$('#writing-note-form').classList.contains('hidden');
+  $('#writing-note-form').classList.toggle('hidden', !formOpen);
+  $('#new-writing-note').classList.toggle('hidden', formOpen);
+  const query = $('#writing-notes-search').value.trim().toLocaleLowerCase('vi');
+  const category = $('#writing-notes-filter').value;
+  const notes = [...state.data.writing.notes]
+    .filter((note) => (category === 'all' || note.category === category)
+      && (!query || `${note.title} ${note.content}`.toLocaleLowerCase('vi').includes(query)))
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  $('#writing-notes-list').innerHTML = notes.length ? notes.map((note) => `
+    <article class="writing-note-card" data-writing-note-id="${escapeHtml(note.id)}">
+      <div class="writing-note-card-head"><div><span>${escapeHtml(note.category)}</span><time>${escapeHtml(dateLabel(localDate(note.updatedAt), true))}</time></div><div><button type="button" data-writing-note-action="edit">Chỉnh sửa</button><button type="button" data-writing-note-action="delete">Xóa</button></div></div>
+      <h2>${escapeHtml(note.title)}</h2>
+      <p>${escapeHtml(note.content)}</p>
+    </article>`).join('') : emptyState(
+      state.data.writing.notes.length ? 'Không tìm thấy ghi chú' : 'Sổ kiến thức đang trống',
+      state.data.writing.notes.length ? 'Thử đổi từ khóa hoặc chủ đề.' : 'Lưu công thức mở bài hoặc cấu trúc câu đầu tiên của bạn.'
+    );
+}
+
+function openWritingNoteEditor(note = null) {
+  state.editingWritingNoteId = note?.id || null;
+  $('#writing-note-category').value = note?.category || 'Mở bài';
+  $('#writing-note-title').value = note?.title || '';
+  $('#writing-note-content').value = note?.content || '';
+  $('#writing-note-form-eyebrow').textContent = note ? 'CHỈNH SỬA GHI CHÚ' : 'GHI CHÚ MỚI';
+  $('#writing-note-form-title').textContent = note ? 'Cập nhật kiến thức Writing' : 'Thêm kiến thức Writing';
+  $('#save-writing-note').textContent = note ? 'Lưu thay đổi' : 'Lưu ghi chú';
+  $('#writing-note-form').classList.remove('hidden');
+  $('#new-writing-note').classList.add('hidden');
+  $('#writing-note-title').focus();
+}
+
+function closeWritingNoteEditor() {
+  state.editingWritingNoteId = null;
+  $('#writing-note-form').reset();
+  $('#writing-note-form').classList.add('hidden');
+  $('#new-writing-note').classList.remove('hidden');
+}
+
+async function submitWritingNote(event) {
+  event.preventDefault();
+  const title = $('#writing-note-title').value.trim();
+  const content = $('#writing-note-content').value.trim();
+  if (!title) { showToast('Hãy nhập tiêu đề ghi chú.', '!', true); $('#writing-note-title').focus(); return; }
+  if (!content) { showToast('Hãy nhập nội dung kiến thức.', '!', true); $('#writing-note-content').focus(); return; }
+  const now = new Date().toISOString();
+  const payload = { category: $('#writing-note-category').value, title, content, updatedAt: now };
+  const existing = state.data.writing.notes.find((note) => note.id === state.editingWritingNoteId);
+  if (existing) Object.assign(existing, payload);
+  else state.data.writing.notes.push({ id: uid(), createdAt: now, ...payload });
+  await persist(false);
+  showToast(existing ? 'Đã cập nhật ghi chú Writing.' : 'Đã lưu ghi chú Writing.');
+  closeWritingNoteEditor();
+  renderWritingNotes();
+}
+
+function editWritingNote(id) {
+  const note = state.data.writing.notes.find((item) => item.id === id);
+  if (note) openWritingNoteEditor(note);
+}
+
+function deleteWritingNote(id) {
+  const note = state.data.writing.notes.find((item) => item.id === id);
+  if (!note) return;
+  askConfirm('Xóa ghi chú Writing này?', `“${note.title}” sẽ bị xóa khỏi sổ kiến thức.`, async () => {
+    state.data.writing.notes = state.data.writing.notes.filter((item) => item.id !== id);
+    await persist(false);
+    closeConfirm();
+    renderWritingNotes();
+    showToast('Đã xóa ghi chú Writing.');
+  }, 'Xóa ghi chú');
 }
 
 function resetWritingForm(render = true) {
@@ -1090,6 +1194,7 @@ function editWritingEntry(id) {
   const entry = state.data.writing.entries.find((item) => item.id === id);
   if (!entry) return;
   state.writingTask = entry.task;
+  state.writingSection = entry.task;
   state.editingWritingId = id;
   state.writingEditorOpen = true;
   state.writingManageTypesOpen = false;
@@ -1834,6 +1939,7 @@ function renderCurrentView() {
   if (state.view === 'add') renderRecentAdded();
   if (state.view === 'library') renderLibrary();
   if (state.view === 'review') renderReviewWelcome();
+  if (state.view === 'writing') renderWriting();
   if (state.view === 'stats') renderStats();
   if (state.view === 'settings') renderSettings();
   renderGlobal();
@@ -1860,8 +1966,24 @@ function bindEvents() {
   document.addEventListener('click', (event) => {
     const nav = event.target.closest('[data-view]');
     const go = event.target.closest('[data-go]');
+    if (nav?.dataset.writingSection) {
+      state.writingSection = nav.dataset.writingSection;
+      if (state.writingSection !== 'notes') {
+        state.writingTask = state.writingSection;
+        resetWritingForm(false);
+      } else {
+        state.writingEditorOpen = false;
+        state.writingManageTypesOpen = false;
+      }
+    }
     if (nav) navigate(nav.dataset.view);
     if (go) navigate(go.dataset.go);
+    if (event.target.closest('#writing-menu-toggle')) {
+      const group = $('.writing-nav-group');
+      const open = !group.classList.contains('open');
+      group.classList.toggle('open', open);
+      $('#writing-menu-toggle').setAttribute('aria-expanded', String(open));
+    }
 
     if (event.target.closest('.weekly-streak-card, .sidebar-bottom .streak-card')) openStreakCalendar();
     const streakDay = event.target.closest('[data-streak-date]');
@@ -1897,12 +2019,6 @@ function bindEvents() {
       }
     }
 
-    const writingTask = event.target.closest('[data-writing-task]');
-    if (writingTask && writingTask.dataset.writingTask !== state.writingTask) {
-      state.writingTask = writingTask.dataset.writingTask;
-      state.editingWritingTypeId = null;
-      resetWritingForm();
-    }
     const writingTypeChip = event.target.closest('[data-writing-type-id]');
     const writingTypeAction = event.target.closest('[data-writing-type-action]');
     if (writingTypeChip && writingTypeAction) {
@@ -1915,6 +2031,14 @@ function bindEvents() {
       if (writingEntryAction.dataset.writingEntryAction === 'edit') editWritingEntry(writingEntry.dataset.writingEntryId);
       if (writingEntryAction.dataset.writingEntryAction === 'delete') deleteWritingEntry(writingEntry.dataset.writingEntryId);
     }
+    const writingNote = event.target.closest('[data-writing-note-id]');
+    const writingNoteAction = event.target.closest('[data-writing-note-action]');
+    if (writingNote && writingNoteAction) {
+      if (writingNoteAction.dataset.writingNoteAction === 'edit') editWritingNote(writingNote.dataset.writingNoteId);
+      if (writingNoteAction.dataset.writingNoteAction === 'delete') deleteWritingNote(writingNote.dataset.writingNoteId);
+    }
+    if (event.target.closest('#new-writing-note')) openWritingNoteEditor();
+    if (event.target.closest('#cancel-writing-note')) { closeWritingNoteEditor(); renderWritingNotes(); }
     if (event.target.closest('#new-writing-entry')) {
       resetWritingForm(false);
       state.writingEditorOpen = true;
@@ -2005,8 +2129,11 @@ function bindEvents() {
   $('#home-notification').addEventListener('click', () => navigate('settings'));
   $('#word-form').addEventListener('submit', submitWord);
   $('#writing-entry-form').addEventListener('submit', submitWritingEntry);
+  $('#writing-note-form').addEventListener('submit', submitWritingNote);
   $('#writing-content').addEventListener('input', (event) => { $('#writing-word-count').textContent = `${writingWordCount(event.target.value)} từ`; });
   $('#writing-type-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); saveWritingType(); } });
+  $('#writing-notes-search').addEventListener('input', renderWritingNotes);
+  $('#writing-notes-filter').addEventListener('change', renderWritingNotes);
   $('#writing-errors').addEventListener('input', syncWritingErrorsFromDom);
   $('#writing-image-drop').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('#upload-writing-image').click(); }
@@ -2023,7 +2150,7 @@ function bindEvents() {
     reader.readAsDataURL(file);
   });
   document.addEventListener('paste', (event) => {
-    if (state.view !== 'writing') return;
+    if (state.view !== 'writing' || state.writingSection === 'notes') return;
     const item = [...(event.clipboardData?.items || [])].find((entry) => entry.type.startsWith('image/'));
     if (!item) return;
     event.preventDefault();
