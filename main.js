@@ -496,7 +496,7 @@ function createWindow() {
     height: 820,
     minWidth: 980,
     minHeight: 650,
-    backgroundColor: '#fff9fb',
+    backgroundColor: '#f8f7f8',
     show: false,
     frame: false,
     title: 'milim',

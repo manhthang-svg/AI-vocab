@@ -204,6 +204,18 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 }
 
+const UI_ICON_PATHS = {
+  bookmark: 'M6 4h12v16l-6-4-6 4z',
+  sparkles: 'm12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2zM18.5 14l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7zM5 14l.8 2.7 2.7.8-2.7.8L5 21l-.8-2.7-2.7-.8 2.7-.8z',
+  repeat: 'M20 7h-9a6 6 0 0 0-6 6v1m-1-4 1 4 4-1M4 17h9a6 6 0 0 0 6-6v-1m1 4-1-4-4 1',
+  flame: 'M12 22c4.4 0 8-3 8-7.6 0-2.7-1.3-5.3-3.8-7.8.1 2.1-.8 3.5-1.7 4.2.2-3.6-1.9-7.1-5.6-9.1.4 3.3-1.5 5.5-3.2 7.6-1.4 1.7-2.6 3.4-2.6 5.8C4.2 19 7.7 22 12 22Z'
+};
+
+function uiIcon(name) {
+  const path = UI_ICON_PATHS[name] || UI_ICON_PATHS.sparkles;
+  return `<svg class="ui-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
+}
+
 function uid() {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -546,7 +558,7 @@ function streakWeekMarkup(compact = false) {
     const partial = points > 0 && !learned;
     const isToday = index === days.length - 1;
     const fullDate = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' }).format(date);
-    return `<div class="streak-day ${learned ? 'learned' : ''} ${partial ? 'partial' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)} · ${points}/${goal} điểm"><i>${learned ? (isToday ? '🔥' : '✓') : partial ? points : ''}</i><span>${labels[date.getDay()]}</span></div>`;
+    return `<div class="streak-day ${learned ? 'learned' : ''} ${partial ? 'partial' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)} · ${points}/${goal} điểm"><i aria-hidden="true">${learned ? '✓' : partial ? points : ''}</i><span>${labels[date.getDay()]}</span></div>`;
   }).join('');
 }
 
@@ -600,15 +612,30 @@ function closeConfirm() {
 }
 
 function emptyState(title, message, buttonLabel = '', destination = '') {
-  return `<div class="empty-state"><div><span class="empty-icon">♡</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p>${buttonLabel ? `<button class="soft-btn" data-go="${destination}">${escapeHtml(buttonLabel)}</button>` : ''}</div></div>`;
+  return `<div class="empty-state"><div><span class="empty-icon">${uiIcon('sparkles')}</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p>${buttonLabel ? `<button class="soft-btn" data-go="${destination}">${escapeHtml(buttonLabel)}</button>` : ''}</div></div>`;
 }
 
 function navigate(view) {
   state.view = view;
-  $$('.view').forEach((node) => node.classList.toggle('active', node.id === `view-${view}`));
-  $$('.nav-item[data-view]').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
+  $$('.view').forEach((node) => {
+    const active = node.id === `view-${view}`;
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-hidden', String(!active));
+  });
+  $$('.nav-item[data-view]').forEach((node) => {
+    const active = node.dataset.view === view;
+    node.classList.toggle('active', active);
+    if (active) node.setAttribute('aria-current', 'page');
+    else node.removeAttribute('aria-current');
+  });
+  $$('.nav-subitem[data-writing-section]').forEach((node) => {
+    const active = view === 'writing' && node.dataset.writingSection === state.writingSection;
+    node.classList.toggle('active', active);
+    if (active) node.setAttribute('aria-current', 'page');
+    else node.removeAttribute('aria-current');
+  });
   $('#writing-menu-toggle').classList.toggle('active', view === 'writing');
-  $('.content').scrollTo({ top: 0, behavior: 'smooth' });
+  $('.content').scrollTo({ top: 0, behavior: 'auto' });
   if (view === 'home') renderHome();
   if (view === 'add') renderRecentAdded();
   if (view === 'library') renderLibrary();
@@ -966,7 +993,12 @@ function renderWritingJournal() {
 
 function renderWriting() {
   const notesMode = state.writingSection === 'notes';
-  $$('.nav-subitem[data-writing-section]').forEach((button) => button.classList.toggle('active', button.dataset.writingSection === state.writingSection));
+  $$('.nav-subitem[data-writing-section]').forEach((button) => {
+    const active = state.view === 'writing' && button.dataset.writingSection === state.writingSection;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
   $('#writing-menu-toggle').classList.toggle('active', state.view === 'writing');
   $('#writing-journal-heading').classList.toggle('hidden', notesMode);
   $('#writing-notes-view').classList.toggle('hidden', !notesMode);
@@ -1721,9 +1753,9 @@ function renderStats() {
   const currentStreak = streak();
   const bestStreak = longestStreak();
   const regularStats = [
-    ['♡', total, 'Tổng từ đã lưu'], ['✦', mastered, 'Từ đã ghi nhớ'], ['↻', reviewCount, 'Lượt ôn tập']
-  ].map(([icon, value, label]) => `<article class="stat-card"><i>${icon}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
-  $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card streak-stat-card"><i>🔥</i><strong>${currentStreak}</strong><span>Chuỗi hiện tại · dài nhất ${bestStreak} ngày</span></article>`;
+    ['bookmark', total, 'Tổng từ đã lưu'], ['sparkles', mastered, 'Từ đã ghi nhớ'], ['repeat', reviewCount, 'Lượt ôn tập']
+  ].map(([icon, value, label]) => `<article class="stat-card"><i>${uiIcon(icon)}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
+  $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card streak-stat-card"><i>${uiIcon('flame')}</i><strong>${currentStreak}</strong><span>Chuỗi hiện tại · dài nhất ${bestStreak} ngày</span></article>`;
   const usage = state.data.settings.aiUsage;
   const aiTotal = (usage.local || 0) + (usage.gemini || 0) + (usage.manual || 0);
   $('#ai-stats-strip').innerHTML = `<div><span>AI & TỰ ĐÁNH GIÁ</span><strong>${aiTotal} lượt chấm</strong></div><p><b>${usage.local || 0}</b> cục bộ</p><p><b>${usage.gemini || 0}</b> Gemini</p><p><b>${usage.manual || 0}</b> tự đánh giá</p>`;
@@ -2405,9 +2437,9 @@ async function init() {
   });
   renderPosOptions();
   renderDefinitionFields();
-  renderHome();
   renderReviewWelcome();
   renderSettings();
+  navigate('home');
   setInterval(checkNotification, 60 * 1000);
   setInterval(updateQuickTimer, 1000);
   setTimeout(checkNotification, 1500);
