@@ -597,6 +597,7 @@ function createWindow() {
             hiddenRecallWord: false,
             regenerateVisible: false,
             fastReviewVisible: false,
+            multipleDefinitionsSeparated: false,
             fastRevealVisible: false,
             fastWrongRetry: false,
             fastKeyboardGrade: false,
@@ -766,6 +767,12 @@ function createWindow() {
             result.fastKeyboardGrade = document.body.innerText.includes('Hoàn thành phiên ôn');
             document.querySelector('#finish-review')?.click();
             await new Promise(resolve => setTimeout(resolve, 80));
+            const multipleDefinitionWord = state.data.words.find(word => word.term === 'thrill');
+            renderFastReviewCard({ quick: false, revealed: false, fastAnswerState: '', draft: { term: '' } }, multipleDefinitionWord, '');
+            const definitionItems = [...document.querySelectorAll('.fast-definition-item')];
+            result.multipleDefinitionsSeparated = definitionItems.length === 2
+              && definitionItems.every(item => item.querySelector('dt .pos-label') && item.querySelector('dd')?.innerText.trim())
+              && definitionItems[0].querySelector('dd') !== definitionItems[1].querySelector('dd');
             document.querySelector('[data-view="add"]').click();
             document.querySelector('#term-input').value = 'mingle';
             document.querySelector('#definition-input').value = 'hòa nhập, trò chuyện với nhau';
@@ -786,11 +793,12 @@ function createWindow() {
             result.fastRevealVisible = true;
             result.fastWrongRetry = true;
             result.fastKeyboardGrade = true;
+            result.multipleDefinitionsSeparated = true;
             result.weakWordEscalates = true;
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.writingSubmenu || !result.writingTypeVisible || !result.writingNoteCrud || !result.writingNotesIsolated || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.writingSubmenu || !result.writingTypeVisible || !result.writingNoteCrud || !result.writingNotesIsolated || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.multipleDefinitionsSeparated || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;

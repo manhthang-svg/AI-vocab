@@ -1548,13 +1548,29 @@ body {
   font-weight: 850;
   letter-spacing: 1.2px;
 }
-.fast-recall-card blockquote {
+.fast-definition-list { display: grid; margin: 0; }
+.fast-definition-item {
+  display: grid;
+  grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 15px 0;
+}
+.fast-definition-item:first-child { padding-top: 0; }
+.fast-definition-item:last-child { padding-bottom: 0; }
+.fast-definition-item + .fast-definition-item { border-top: 1px solid #ecdfe4; }
+.fast-definition-item dt { margin: 3px 0 0; }
+.fast-definition-item .pos-label { margin: 0; white-space: nowrap; vertical-align: 0; }
+.fast-definition-item dd {
+  min-width: 0;
   margin: 0;
   color: #161616;
-  font-size: clamp(24px, 2.7vw, 34px);
+  font-size: clamp(21px, 2.25vw, 29px);
   font-weight: 730;
-  line-height: 1.3;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
 }
+.fast-definition-list.single .fast-definition-item dd { font-size: clamp(24px, 2.7vw, 34px); }
 .fast-term-form { display: grid; gap: 10px; margin-top: 23px; }
 .fast-term-form > label { color: #9f4263; font-size: 10px; font-weight: 850; letter-spacing: 1.1px; }
 .fast-term-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
@@ -1919,6 +1935,8 @@ body {
   .fast-grade-grid { grid-template-columns: repeat(2, 1fr); }
   .fast-recall-card { padding: 22px; }
   .fast-cue-panel { grid-template-columns: 1fr; padding: 22px; }
+  .fast-definition-item { grid-template-columns: 1fr; gap: 8px; }
+  .fast-definition-item dt { margin: 0; }
   .fast-answer-heading, .fast-answer-footer { align-items: flex-start; flex-direction: column; }
   .fast-term-control { grid-template-columns: 1fr; }
   .fast-term-control button { min-height: 48px; }

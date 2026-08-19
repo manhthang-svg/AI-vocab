@@ -454,6 +454,22 @@ function definitionText(word, withLabels = false) {
   }).filter(Boolean).join('\n');
 }
 
+function reviewDefinitionsMarkup(word) {
+  const definitions = wordDefinitions(word)
+    .map((item) => ({
+      partOfSpeech: String(item.partOfSpeech || ''),
+      definition: String(item.definition || '').trim()
+    }))
+    .filter((item) => item.definition);
+  const items = definitions.length ? definitions : [{ partOfSpeech: '', definition: '—' }];
+
+  return `<dl class="fast-definition-list ${items.length === 1 ? 'single' : ''}">${items.map((item) => {
+    const label = posName(item.partOfSpeech) || 'Nghĩa';
+    const posClass = item.partOfSpeech ? ` pos-${escapeHtml(item.partOfSpeech)}` : '';
+    return `<div class="fast-definition-item"><dt><span class="pos-label${posClass}">${escapeHtml(label)}</span></dt><dd>${escapeHtml(item.definition)}</dd></div>`;
+  }).join('')}</dl>`;
+}
+
 function reviewNoteMarkup(word) {
   const note = String(word?.note || '').trim();
   return note ? `<aside class="review-note"><div>✦</div><section><span>NOTE CỦA BẠN</span><p>${escapeHtml(note)}</p></section></aside>` : '';
@@ -1462,7 +1478,7 @@ function projectedSchedule(word, grade, now = new Date()) {
 }
 
 function renderFastReviewCard(review, word, progressHeader) {
-  const definitions = definitionText(word, true);
+  const definitionsMarkup = reviewDefinitionsMarkup(word);
   const gradeChoices = ['again', 'hard', 'good', 'easy'].map((grade, index) => {
     const schedule = projectedSchedule(word, grade);
     return `<button class="manual-grade ${grade}" data-fast-grade="${grade}"><kbd>${index + 1}</kbd><span class="fast-grade-copy"><strong>${gradeName(grade)}</strong><small>Hẹn lại ${intervalLabel(schedule.interval, grade, schedule.dueAt)}</small></span></button>`;
@@ -1483,7 +1499,7 @@ function renderFastReviewCard(review, word, progressHeader) {
       ${review.fastAnswerState === 'wrong' ? '<p class="fast-term-error">Chưa đúng. Hãy thử lại một lần nữa nhé.</p>' : '<p class="fast-term-hint">Không phân biệt chữ hoa, chữ thường và khoảng trắng thừa.</p>'}
       <button type="button" class="fast-show-answer" id="reveal-fast-answer">Không nhớ · xem đáp án</button>
     </form>`;
-  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>${review.quick ? 'Phiên 5 phút' : 'Ôn nhanh'} · không gọi AI</b>${!review.quick && !review.revealed ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><div class="fast-cue-panel"><div class="fast-cue-mark">✦</div><div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p><blockquote>${escapeHtml(definitions)}</blockquote></div></div>${answer}</div></div>`;
+  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>${review.quick ? 'Phiên 5 phút' : 'Ôn nhanh'} · không gọi AI</b>${!review.quick && !review.revealed ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><div class="fast-cue-panel"><div class="fast-cue-mark">✦</div><div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p>${definitionsMarkup}</div></div>${answer}</div></div>`;
   updateQuickTimer();
   if (!review.revealed) setTimeout(() => {
     const input = $('#fast-term-input');
