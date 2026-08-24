@@ -241,8 +241,9 @@ kbd { border: 1px solid #e8dde1; border-bottom-width: 2px; padding: 2px 5px; bor
 .settings-card p { margin: 0; max-width: 320px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .settings-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: var(--pink); background: var(--surface-soft); }
 .switch { position: absolute; top: 27px; right: 27px; }
-.switch input { display: none; }
+.switch input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .switch span { display: block; width: 40px; height: 23px; padding: 3px; border-radius: 20px; background: #ded6da; cursor: pointer; transition: .2s; }
+.switch input:focus-visible + span { outline: 3px solid rgba(182, 64, 104, .2); outline-offset: 3px; }
 .switch span::after { content: ""; display: block; width: 17px; height: 17px; border-radius: 50%; background: white; transition: .2s; box-shadow: 0 2px 5px rgba(0,0,0,.12); }
 .switch input:checked + span { background: var(--pink); }
 .switch input:checked + span::after { transform: translateX(17px); }
@@ -1405,7 +1406,7 @@ body {
 
 /* Local-first AI */
 .local-ai-card {
-  order: -1;
+  order: -2;
   grid-column: 1 / -1;
   min-height: 0;
   display: grid;
@@ -2294,6 +2295,33 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-card { min-height: 230px; padding: 28px; }
 .settings-card h2 { margin: 15px 0 7px; color: var(--ui-ink); font-size: 20px; }
 .settings-card p { color: var(--ui-muted); font-size: 13px; line-height: 1.6; }
+.email-reminder-card { grid-column: 1 / -1; min-height: auto; }
+.local-notification-card, .gemini-card { order: -1; }
+.email-reminder-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; }
+.email-reminder-heading > div { min-width: 0; }
+.email-reminder-heading .switch { position: static; flex: 0 0 auto; margin-top: 7px; }
+.email-reminder-heading p { max-width: 680px; }
+.email-reminder-fields { display: grid; gap: 18px; margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--ui-border); }
+.email-reminder-setup { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 18px; border: 1px solid var(--ui-rose-200); border-radius: 14px; background: var(--ui-rose-50); }
+.email-reminder-setup > div:first-child { display: grid; gap: 4px; }
+.email-reminder-setup strong { color: var(--ui-ink); font-size: 14px; }
+.email-reminder-setup span { color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
+.email-reminder-setup > div:last-child, .email-reminder-actions { display: flex; align-items: center; gap: 10px; }
+.email-reminder-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.email-reminder-steps li { display: flex; align-items: flex-start; gap: 9px; color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
+.email-reminder-steps li > b { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; border-radius: 8px; color: var(--ui-rose-700); background: var(--ui-rose-50); font-size: 11px; }
+.email-reminder-steps code { color: var(--ui-ink-soft); font-size: 11px; }
+.email-reminder-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr) 130px; gap: 14px; }
+.email-reminder-grid label { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.email-reminder-grid label:last-child { grid-column: 1 / -1; }
+.email-reminder-grid label > span { color: var(--ui-rose-700); font-size: 11px; font-weight: 800; letter-spacing: .9px; }
+.email-reminder-grid input { width: 100%; min-width: 0; height: 48px; padding: 0 14px; border: 1px solid var(--ui-border-strong); border-radius: 11px; color: var(--ui-ink); background: var(--ui-surface); font: inherit; font-size: 14px; outline: 0; }
+.email-reminder-grid input:focus { border-color: var(--ui-rose-600); box-shadow: 0 0 0 4px rgba(182, 64, 104, .09); }
+.email-reminder-grid small { color: var(--ui-muted); font-size: 11px; line-height: 1.45; }
+.email-reminder-actions button { min-height: 44px; }
+.email-reminder-status { max-width: none !important; color: var(--ui-muted); }
+.email-reminder-status.success { color: #47735b; }
+.email-reminder-status.error { color: #a64c59; }
 .local-ai-card { padding: 30px; background: linear-gradient(135deg, #fff 0%, #fff 72%, #fff2f6 100%); }
 .local-model-panel { border-color: var(--ui-border); border-radius: 14px; }
 .model-status-row strong { font-size: 14px; }
@@ -2355,6 +2383,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .content { padding-inline: 36px; }
   .hero-grid { grid-template-columns: 1fr; }
   .hero-card, .weekly-streak-card { min-height: 300px; }
+}
+
+@media (max-width: 900px) {
+  .email-reminder-grid { grid-template-columns: 1fr 140px; }
+  .email-reminder-grid label:first-child, .email-reminder-grid label:last-child { grid-column: 1 / -1; }
+  .email-reminder-setup { align-items: flex-start; flex-direction: column; }
+  .email-reminder-steps { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 820px) {

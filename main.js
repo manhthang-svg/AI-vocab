@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor, nativeImage, clipboard, desktopCapturer, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage, powerMonitor, nativeImage, clipboard, desktopCapturer, screen, Menu, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { gradeFromVocabularyMeaning } = require('./src/grading');
 const { LocalAIManager } = require('./local-ai');
+const { validateReminderUrl, validateReminderEmail, validateReminderTime, normalizeReminderDate } = require('./src/reminder');
 const {
   normalizeChallenge,
   normalizeReviewResult,
@@ -20,6 +21,7 @@ let mainWindow;
 let writeQueue = Promise.resolve();
 let updateCheckRunning = false;
 let localAI;
+let smokeReminderToken = '';
 let updateStatus = { state: 'idle', currentVersion: app.getVersion(), version: '', percent: 0, message: 'Sẵn sàng kiểm tra cập nhật.' };
 const smokeMode = process.env.MILIM_SMOKE_MODE === '1';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
@@ -47,6 +49,11 @@ const emptyData = () => ({
   settings: {
     notifications: true,
     notificationTime: '19:30',
+    emailReminderEnabled: false,
+    emailReminderUrl: '',
+    emailReminderEmail: '',
+    emailReminderTime: '23:00',
+    emailReminderLastSyncedDate: null,
     fsrsRetention: 0.9,
     theme: 'light',
     lastNotificationDate: null,
@@ -128,12 +135,58 @@ async function readGeminiCredentials() {
   }
 }
 
+async function readSecrets() {
+  try {
+    return JSON.parse(await fs.readFile(secretsFile(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function writeSecrets(patch) {
+  await fs.mkdir(path.dirname(secretsFile()), { recursive: true });
+  const current = await readSecrets();
+  await fs.writeFile(secretsFile(), JSON.stringify({ ...current, ...patch }, null, 2), 'utf8');
+}
+
 async function storeGeminiCredentials(key, model) {
   if (smokeMode) return;
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Thiết bị này chưa hỗ trợ lưu API key an toàn.');
   const encrypted = safeStorage.encryptString(key).toString('base64');
-  await fs.mkdir(path.dirname(secretsFile()), { recursive: true });
-  await fs.writeFile(secretsFile(), JSON.stringify({ geminiKey: encrypted, geminiModel: model }, null, 2), 'utf8');
+  await writeSecrets({ geminiKey: encrypted, geminiModel: model });
+}
+
+async function readReminderToken() {
+  if (smokeMode) return smokeReminderToken;
+  const raw = await readSecrets();
+  if (!raw.reminderToken || !safeStorage.isEncryptionAvailable()) return '';
+  try {
+    return safeStorage.decryptString(Buffer.from(raw.reminderToken, 'base64'));
+  } catch {
+    return '';
+  }
+}
+
+async function storeReminderToken(token) {
+  if (smokeMode) { smokeReminderToken = token; return; }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Thiết bị này chưa hỗ trợ lưu mã kết nối an toàn.');
+  await writeSecrets({ reminderToken: safeStorage.encryptString(token).toString('base64') });
+}
+
+async function postReminder(endpoint, payload) {
+  if (smokeMode) return { ok: true, ...payload };
+  const response = await fetch(validateReminderUrl(endpoint), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000)
+  });
+  const body = await response.text();
+  let result;
+  try { result = JSON.parse(body); } catch { throw new Error('Apps Script không trả về phản hồi hợp lệ. Hãy kiểm tra lại URL triển khai.'); }
+  if (!response.ok || !result.ok) throw new Error(result.error || `Apps Script trả về lỗi ${response.status}.`);
+  return result;
 }
 
 function geminiError(status, detail) {
@@ -614,6 +667,7 @@ function createWindow() {
             retentionControl: false,
             weeklyStreakVisible: false,
             localAIControls: false,
+            emailReminderControls: false,
             meaningfulStreakReached: false,
             removedFeaturesHidden: !document.querySelector('[data-view="script"], [data-view="speaking"], #view-script, #view-speaking')
           };
@@ -635,6 +689,19 @@ function createWindow() {
           result.localAIControls = document.querySelector('#ai-provider')?.value === 'auto'
             && document.querySelector('#ai-resource-mode')?.value === 'balanced'
             && document.querySelector('#local-ai-status')?.innerText.includes('sẵn sàng');
+          document.querySelector('#email-reminder-toggle').click();
+          document.querySelector('#email-reminder-url').value = 'https://script.google.com/macros/s/smoke-deployment/exec';
+          document.querySelector('#email-reminder-email').value = 'learner@example.com';
+          document.querySelector('#email-reminder-time').value = '23:00';
+          document.querySelector('#email-reminder-token').value = 'smoke-reminder-token-1234567890';
+          document.querySelector('#save-email-reminder').click();
+          await new Promise(resolve => setTimeout(resolve, 120));
+          document.querySelector('#test-email-reminder').click();
+          await new Promise(resolve => setTimeout(resolve, 80));
+          result.emailReminderControls = state.data.settings.emailReminderEnabled
+            && state.data.settings.emailReminderTime === '23:00'
+            && state.data.settings.emailReminderLastSyncedDate === localDate()
+            && document.querySelector('#email-reminder-status')?.innerText.includes('Đã gửi email thử');
           document.querySelector('[data-view="writing"]').click();
           result.writingSubmenu = document.querySelectorAll('.nav-subitem[data-writing-section]').length === 3
             && document.querySelector('[data-writing-section="task1"]').classList.contains('active');
@@ -798,7 +865,7 @@ function createWindow() {
           }
           return result;
         })()`);
-        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.writingSubmenu || !result.writingTypeVisible || !result.writingNoteCrud || !result.writingNotesIsolated || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.multipleDefinitionsSeparated || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
+        if (result.words !== 1 || !result.termVisible || !result.definitionVisible || !result.multiplePartsVisible || !result.libraryNoteVisible || !result.keyboardPartSelection || !result.formClearedAfterSave || !result.noteHiddenBeforeAnswer || !result.noteRevealedAfterAnswer || !result.streakSummaryVisible || !result.duplicateBlocked || !result.weeklyStreakVisible || !result.meaningfulStreakReached || !result.historyVisible || result.heatmapCells !== 112 || !result.retentionControl || !result.localAIControls || !result.emailReminderControls || !result.writingTypeCrud || !result.writingMinimalLayout || !result.writingJournalSaved || !result.writingJournalDisclosure || !result.writingEntryEdited || !result.writingSubmenu || !result.writingTypeVisible || !result.writingNoteCrud || !result.writingNotesIsolated || !result.hiddenRecallWord || !result.regenerateVisible || !result.reviewFeedback || !result.fsrsFeedback || !result.meaningOnlyGrade || !result.reviewComplete || !result.fastReviewVisible || !result.multipleDefinitionsSeparated || !result.fastRevealVisible || !result.fastWrongRetry || !result.fastKeyboardGrade || !result.weakWordEscalates || !result.removedFeaturesHidden) {
           console.error('MILIM_SMOKE_FAILED', result);
           app.exit(1);
           return;
@@ -809,6 +876,15 @@ function createWindow() {
       if (captureView) {
         await mainWindow.webContents.executeJavaScript(`navigate(${JSON.stringify(captureView)})`);
         await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      if (process.env.MILIM_CAPTURE_EMAIL_EXPANDED === '1') {
+        await mainWindow.webContents.executeJavaScript(`(() => { const toggle = document.querySelector('#email-reminder-toggle'); if (toggle) toggle.checked = true; updateEmailReminderDisclosure(true); })()`);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      const captureSelector = process.env.MILIM_CAPTURE_SELECTOR;
+      if (captureSelector) {
+        await mainWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(captureSelector)})?.scrollIntoView({ block: 'center' })`);
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
       const captureTreeDays = Math.max(0, Math.floor(Number(process.env.MILIM_CAPTURE_TREE_DAYS) || 0));
       if (captureTreeDays) {
@@ -926,6 +1002,53 @@ ipcMain.handle('app:notify', (_event, { title, body }) => {
   }).show();
   return true;
 });
+
+ipcMain.handle('reminder:status', async () => ({ configured: Boolean(await readReminderToken()) }));
+
+ipcMain.handle('reminder:configure', async (_event, payload = {}) => {
+  const endpoint = validateReminderUrl(payload.endpoint);
+  const email = validateReminderEmail(payload.email);
+  const reminderTime = validateReminderTime(payload.reminderTime || '23:00');
+  const suppliedToken = String(payload.token || '').trim();
+  const token = suppliedToken || await readReminderToken();
+  if (!token || token.length < 20 || token.length > 200) throw new Error('Hãy nhập mã kết nối do Apps Script tạo.');
+  const result = await postReminder(endpoint, {
+    action: 'configure',
+    token,
+    email,
+    reminderTime,
+    timezone: 'Asia/Ho_Chi_Minh',
+    enabled: Boolean(payload.enabled)
+  });
+  if (suppliedToken) await storeReminderToken(suppliedToken);
+  return { ...result, endpoint, email, reminderTime, configured: true };
+});
+
+ipcMain.handle('reminder:activity', async (_event, payload = {}) => {
+  if (smokeMode) return { ok: true, studiedDate: normalizeReminderDate(payload.date) };
+  const data = await readData();
+  const settings = data.settings || {};
+  if (!settings.emailReminderEnabled || !settings.emailReminderUrl) return { ok: false, skipped: true };
+  const token = await readReminderToken();
+  if (!token) return { ok: false, skipped: true };
+  return postReminder(settings.emailReminderUrl, { action: 'activity', token, date: normalizeReminderDate(payload.date) });
+});
+
+ipcMain.handle('reminder:test', async () => {
+  if (smokeMode) return { ok: true };
+  const data = await readData();
+  const token = await readReminderToken();
+  if (!data.settings?.emailReminderUrl || !token) throw new Error('Hãy lưu kết nối Apps Script trước.');
+  return postReminder(data.settings.emailReminderUrl, { action: 'test', token });
+});
+
+ipcMain.handle('reminder:copy-script', async () => {
+  const source = await fs.readFile(path.join(__dirname, 'google-apps-script', 'Code.gs'), 'utf8');
+  clipboard.writeText(source);
+  return true;
+});
+
+ipcMain.handle('reminder:open-script', () => shell.openExternal('https://script.google.com/home/start'));
 
 ipcMain.handle('gemini:status', async () => {
   const credentials = await readGeminiCredentials();

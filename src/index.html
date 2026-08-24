@@ -184,7 +184,22 @@
         <section class="view" id="view-settings">
           <div class="page-heading"><div><p class="eyebrow">CÀI ĐẶT</p><h1>Không gian của bạn</h1><p>Điều chỉnh milim để việc học luôn thật nhẹ nhàng.</p></div></div>
           <div class="settings-grid">
-            <article class="settings-card"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg></span><h2>Nhắc mình ôn tập</h2><p>Milim sẽ nhắc khi còn từ đến hạn ôn.</p></div><label class="switch"><input id="notification-toggle" type="checkbox" /><span></span></label><label class="time-field">Thời gian nhắc<input id="notification-time" type="time" /></label></article>
+            <article class="settings-card local-notification-card"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg></span><h2>Nhắc trên máy</h2><p>Milim sẽ hiện thông báo khi còn từ đến hạn và ứng dụng đang mở.</p></div><label class="switch" aria-label="Bật thông báo trên máy"><input id="notification-toggle" type="checkbox" /><span></span></label><label class="time-field">Thời gian nhắc<input id="notification-time" type="time" /></label></article>
+            <article class="settings-card email-reminder-card">
+              <div class="email-reminder-heading"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span><h2>Email giữ chuỗi</h2><p>Nếu đến giờ đã chọn mà hôm nay bạn chưa học, Google Apps Script sẽ gửi một email nhắc ngắn ngay cả khi Milim và máy tính đang tắt.</p></div><label class="switch" aria-label="Bật email giữ chuỗi"><input id="email-reminder-toggle" type="checkbox" /><span></span></label></div>
+              <div class="email-reminder-fields hidden" id="email-reminder-fields">
+                <div class="email-reminder-setup"><div><strong>Kết nối một lần với Google</strong><span>Không cần thuê server. Milim chỉ gửi ngày đã học; mã kết nối được mã hóa trên máy.</span></div><div><button type="button" class="soft-btn" id="copy-reminder-script">Sao chép mã Apps Script</button><button type="button" class="text-btn" id="open-reminder-script">Mở Apps Script</button></div></div>
+                <ol class="email-reminder-steps"><li><b>1</b><span>Dán mã vào project Apps Script mới.</span></li><li><b>2</b><span>Chạy <code>setupMilimReminder</code> và lấy mã trong Execution log.</span></li><li><b>3</b><span>Deploy Web app với quyền truy cập <strong>Anyone</strong>, rồi dán URL bên dưới.</span></li></ol>
+                <div class="email-reminder-grid">
+                  <label for="email-reminder-url"><span>WEB APP URL</span><input id="email-reminder-url" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec"/><small>URL nhận được sau khi Deploy dưới dạng Web app.</small></label>
+                  <label for="email-reminder-email"><span>EMAIL NHẬN</span><input id="email-reminder-email" type="email" autocomplete="email" placeholder="you@gmail.com"/></label>
+                  <label for="email-reminder-time"><span>GIỜ NHẮC</span><input id="email-reminder-time" type="time" value="23:00"/></label>
+                  <label for="email-reminder-token"><span>MÃ KẾT NỐI</span><input id="email-reminder-token" type="password" autocomplete="off" placeholder="Dán mã từ Execution log"/><small id="email-reminder-token-help">Chỉ cần nhập trong lần kết nối đầu tiên.</small></label>
+                </div>
+                <div class="email-reminder-actions"><button type="button" class="primary-btn" id="save-email-reminder">Lưu kết nối</button><button type="button" class="soft-btn" id="test-email-reminder">Gửi email thử</button></div>
+                <p class="email-reminder-status" id="email-reminder-status" role="status">Chưa kết nối Apps Script.</p>
+              </div>
+            </article>
             <article class="settings-card local-ai-card">
               <div class="local-ai-heading"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2zM18.5 14l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7zM5 14l.8 2.7 2.7.8-2.7.8L5 21l-.8-2.7-2.7-.8 2.7-.8z"/></svg></span><h2>AI cục bộ · không cần API key</h2><p>Qwen3 4B chạy ngay trên máy, hoạt động offline sau khi tải và tự giải phóng RAM khi không dùng.</p></div><span class="privacy-pill">RIÊNG TƯ · OFFLINE</span></div>
               <div class="ai-config-grid">
@@ -204,7 +219,7 @@
             <article class="settings-card update-card"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg></span><h2>Cập nhật milim</h2><p>Milim tự kiểm tra và tải phiên bản mới trong nền. Bạn luôn được chọn thời điểm khởi động lại để cài đặt.</p></div><div class="update-progress hidden" id="update-progress"><i id="update-progress-bar"></i></div><p class="update-status" id="update-status">Đang đọc trạng thái cập nhật...</p><button class="soft-btn" id="check-update-btn">Kiểm tra cập nhật</button></article>
             <article class="settings-card data-card"><div><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span><h2>Dữ liệu của bạn</h2><p>Mọi từ vựng đều nằm trên máy này. Hãy sao lưu định kỳ.</p></div><div><button class="soft-btn" id="export-btn">Sao lưu dữ liệu</button><button class="text-btn" id="import-btn">Khôi phục từ tệp</button></div></article>
           </div>
-          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.8.1</span></h2><p>Made softly, for your English journey.</p></div></div>
+          <div class="about-card"><img src="../assets/milim-icon-rounded.png" alt="milim"/><div><h2>milim <span>v3.9.0</span></h2><p>Made softly, for your English journey.</p></div></div>
         </section>
       </main>
     </div>

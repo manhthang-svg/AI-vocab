@@ -34,6 +34,12 @@ const api = window.milim || {
   async normalizeWritingImage(dataUrl) { return dataUrl; },
   async captureWritingScreen() { return ''; },
   async notify() { return false; },
+  async emailReminderStatus() { return { configured: false }; },
+  async configureEmailReminder() { return { ok: true, configured: true }; },
+  async signalEmailReminderActivity() { return { ok: true }; },
+  async testEmailReminder() { return { ok: true }; },
+  async copyEmailReminderScript() { return true; },
+  async openEmailReminderScript() { return true; },
   async geminiStatus() { return { configured: false, model: 'gemini-2.5-flash' }; },
   async saveGeminiKey() { return { ok: true, model: 'gemini-2.5-flash' }; },
   async checkGeminiAnswer(payload) {
@@ -93,7 +99,9 @@ const state = {
   updateStatus: null,
   selectedStreakDate: null,
   confirmAction: null,
-  toastTimer: null
+  toastTimer: null,
+  emailReminderConfigured: false,
+  emailReminderSyncing: false
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -399,6 +407,11 @@ function normalizeData(data) {
   const settings = {
     notifications: true,
     notificationTime: '19:30',
+    emailReminderEnabled: false,
+    emailReminderUrl: '',
+    emailReminderEmail: '',
+    emailReminderTime: '23:00',
+    emailReminderLastSyncedDate: null,
     fsrsRetention: FSRS_RETENTION_DEFAULT,
     theme: 'light',
     lastNotificationDate: null,
@@ -415,6 +428,11 @@ function normalizeData(data) {
   settings.aiIdleMinutes = Math.max(1, Math.min(30, Number(settings.aiIdleMinutes) || 5));
   settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
   settings.dailyGoal = [3, 5, 10].includes(Number(settings.dailyGoal)) ? Number(settings.dailyGoal) : 5;
+  settings.emailReminderEnabled = Boolean(settings.emailReminderEnabled);
+  settings.emailReminderUrl = String(settings.emailReminderUrl || '').slice(0, 1000);
+  settings.emailReminderEmail = String(settings.emailReminderEmail || '').slice(0, 254);
+  settings.emailReminderTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(settings.emailReminderTime || '')) ? settings.emailReminderTime : '23:00';
+  settings.emailReminderLastSyncedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(settings.emailReminderLastSyncedDate || '')) ? settings.emailReminderLastSyncedDate : null;
   return {
     version: 5,
     words: Array.isArray(data?.words) ? data.words.map((word) => normalizeWord(word, settings.fsrsRetention)) : [],
@@ -806,6 +824,7 @@ async function submitWord(event) {
     const createdAt = new Date().toISOString();
     state.data.words.push(normalizeWord({ id: uid(), term, note, definition, definitions, partsOfSpeech, partOfSpeech: partsOfSpeech[0] || '', createdAt, createdDate: localDate(), srs: freshSrs(createdAt) }, state.data.settings.fsrsRetention));
     await persist(false);
+    syncEmailStudySignal(false);
     showToast(`Đã thêm “${term}” vào bộ hôm nay.`);
   }
   resetForm();
@@ -1234,6 +1253,7 @@ async function submitWritingEntry(event) {
     state.data.writing.entries.push({ id: uid(), createdAt: now, ...payload });
   }
   await persist(false);
+  syncEmailStudySignal(false);
   showToast(state.editingWritingId ? 'Đã lưu thay đổi bài Writing.' : 'Đã lưu bài vào nhật ký Writing.');
   resetWritingForm();
 }
@@ -1743,6 +1763,7 @@ async function gradeCurrent(grade, result = null) {
   review.challengeError = '';
   state.data.reviewSession = serializeReviewSession(review);
   await persist();
+  syncEmailStudySignal(false);
   renderGlobal();
   renderReviewCard();
 }
@@ -1872,9 +1893,116 @@ function closeStreakCalendar() {
   $('#streak-modal').classList.add('hidden');
 }
 
+function setEmailReminderStatus(message, tone = '') {
+  const node = $('#email-reminder-status');
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle('success', tone === 'success');
+  node.classList.toggle('error', tone === 'error');
+}
+
+function updateEmailReminderDisclosure(enabled = $('#email-reminder-toggle')?.checked) {
+  $('#email-reminder-fields')?.classList.toggle('hidden', !enabled);
+}
+
+async function refreshEmailReminderStatus() {
+  try {
+    const result = await api.emailReminderStatus();
+    state.emailReminderConfigured = Boolean(result.configured);
+    const tokenInput = $('#email-reminder-token');
+    if (tokenInput) tokenInput.placeholder = state.emailReminderConfigured ? 'Đã lưu an toàn · để trống nếu không đổi' : 'Dán mã từ Execution log';
+    const help = $('#email-reminder-token-help');
+    if (help) help.textContent = state.emailReminderConfigured ? 'Mã kết nối đã được mã hóa bằng Windows.' : 'Chỉ cần nhập trong lần kết nối đầu tiên.';
+    const test = $('#test-email-reminder');
+    if (test) test.disabled = !state.emailReminderConfigured || !state.data.settings.emailReminderUrl;
+    setEmailReminderStatus(
+      state.emailReminderConfigured && state.data.settings.emailReminderUrl
+        ? (state.data.settings.emailReminderEnabled ? `Đã kết nối · sẽ kiểm tra lúc ${state.data.settings.emailReminderTime}.` : 'Đã kết nối · lời nhắc email đang tắt.')
+        : 'Chưa kết nối Apps Script.',
+      state.emailReminderConfigured && state.data.settings.emailReminderUrl ? 'success' : ''
+    );
+  } catch {
+    setEmailReminderStatus('Chưa đọc được trạng thái kết nối.', 'error');
+  }
+}
+
+async function saveEmailReminderSettings(disabling = false) {
+  const enabled = Boolean($('#email-reminder-toggle').checked);
+  const endpoint = $('#email-reminder-url').value.trim();
+  const email = $('#email-reminder-email').value.trim();
+  const reminderTime = $('#email-reminder-time').value || '23:00';
+  const token = $('#email-reminder-token').value.trim();
+  const button = $('#save-email-reminder');
+
+  if (!enabled && !state.emailReminderConfigured) {
+    state.data.settings.emailReminderEnabled = false;
+    await persist(false);
+    updateEmailReminderDisclosure(false);
+    setEmailReminderStatus('Lời nhắc email đang tắt.');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = disabling ? 'Đang tắt…' : 'Đang kết nối…';
+  setEmailReminderStatus('Đang xác minh Apps Script…');
+  try {
+    const result = await api.configureEmailReminder({ endpoint, email, reminderTime, token, enabled });
+    Object.assign(state.data.settings, {
+      emailReminderEnabled: enabled,
+      emailReminderUrl: result.endpoint,
+      emailReminderEmail: result.email,
+      emailReminderTime: result.reminderTime,
+      emailReminderLastSyncedDate: null
+    });
+    $('#email-reminder-token').value = '';
+    state.emailReminderConfigured = true;
+    await persist(false);
+    updateEmailReminderDisclosure(enabled);
+    await refreshEmailReminderStatus();
+    showToast(enabled ? 'Đã bật email giữ chuỗi.' : 'Đã tắt email giữ chuỗi.');
+    if (enabled) syncEmailStudySignal(false);
+  } catch (error) {
+    if (disabling) $('#email-reminder-toggle').checked = true;
+    updateEmailReminderDisclosure($('#email-reminder-toggle').checked);
+    const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+    setEmailReminderStatus(message || 'Không thể kết nối Apps Script.', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Lưu kết nối';
+  }
+}
+
+async function syncEmailStudySignal(loud = false) {
+  const settings = state.data?.settings;
+  const today = localDate();
+  if (!settings?.emailReminderEnabled || !settings.emailReminderUrl || !state.emailReminderConfigured) return false;
+  if (settings.emailReminderLastSyncedDate === today || state.emailReminderSyncing) return true;
+  if (!(activityMetricsByDate()[today]?.points > 0)) return false;
+  state.emailReminderSyncing = true;
+  try {
+    const result = await api.signalEmailReminderActivity({ date: today });
+    if (!result?.ok) return false;
+    settings.emailReminderLastSyncedDate = today;
+    await persist();
+    if (loud) setEmailReminderStatus(`Đã ghi nhận bạn học ngày ${dateLabel(today)}.`, 'success');
+    return true;
+  } catch (error) {
+    if (loud) setEmailReminderStatus('Chưa đồng bộ được hoạt động; Milim sẽ thử lại khi mở app.', 'error');
+    return false;
+  } finally {
+    state.emailReminderSyncing = false;
+  }
+}
+
 function renderSettings() {
   $('#notification-toggle').checked = Boolean(state.data.settings.notifications);
   $('#notification-time').value = state.data.settings.notificationTime || '19:30';
+  $('#email-reminder-toggle').checked = Boolean(state.data.settings.emailReminderEnabled);
+  $('#email-reminder-url').value = state.data.settings.emailReminderUrl || '';
+  $('#email-reminder-email').value = state.data.settings.emailReminderEmail || '';
+  $('#email-reminder-time').value = state.data.settings.emailReminderTime || '23:00';
+  updateEmailReminderDisclosure();
+  refreshEmailReminderStatus();
   const retention = Math.round(normalizedRetention(state.data.settings.fsrsRetention) * 100);
   $('#retention-input').value = String(retention);
   $('#retention-value').textContent = `${retention}%`;
@@ -2282,6 +2410,32 @@ function bindEvents() {
     showToast(`Mục tiêu mới: ${event.target.value} điểm mỗi ngày.`);
   });
   $('#notification-time').addEventListener('change', async (event) => { state.data.settings.notificationTime = event.target.value; state.data.settings.lastNotificationDate = null; await persist(); showToast('Đã đổi giờ nhắc học.'); });
+  $('#email-reminder-toggle').addEventListener('change', (event) => {
+    updateEmailReminderDisclosure(event.target.checked);
+    if (!event.target.checked) saveEmailReminderSettings(true);
+  });
+  $('#save-email-reminder').addEventListener('click', () => saveEmailReminderSettings(false));
+  $('#test-email-reminder').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = 'Đang gửi…';
+    try {
+      await api.testEmailReminder();
+      setEmailReminderStatus(`Đã gửi email thử tới ${state.data.settings.emailReminderEmail}.`, 'success');
+    } catch (error) {
+      const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
+      setEmailReminderStatus(message || 'Chưa gửi được email thử.', 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  });
+  $('#copy-reminder-script').addEventListener('click', async () => {
+    await api.copyEmailReminderScript();
+    showToast('Đã sao chép mã Apps Script.');
+  });
+  $('#open-reminder-script').addEventListener('click', () => api.openEmailReminderScript());
   $('#retention-input').addEventListener('input', (event) => { $('#retention-value').textContent = `${event.target.value}%`; });
   $('#retention-input').addEventListener('change', async (event) => {
     state.data.settings.fsrsRetention = normalizedRetention(Number(event.target.value) / 100);
@@ -2455,7 +2609,9 @@ async function init() {
   renderDefinitionFields();
   renderReviewWelcome();
   renderSettings();
+  await refreshEmailReminderStatus();
   navigate('home');
+  syncEmailStudySignal(false);
   setInterval(checkNotification, 60 * 1000);
   setInterval(updateQuickTimer, 1000);
   setTimeout(checkNotification, 1500);
