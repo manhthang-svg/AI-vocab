@@ -40,36 +40,6 @@ const api = window.milim || {
   async testEmailReminder() { return { ok: true }; },
   async copyEmailReminderScript() { return true; },
   async openEmailReminderScript() { return true; },
-  async geminiStatus() { return { configured: false, model: 'gemini-2.5-flash' }; },
-  async saveGeminiKey() { return { ok: true, model: 'gemini-2.5-flash' }; },
-  async checkGeminiAnswer(payload) {
-    return { meaning_score: 8, sentence_score: 8, meaning_feedback: 'Đúng nghĩa chính.', sentence_feedback: 'Câu dùng từ phù hợp.', corrected_sentence: payload.sentence, overall_feedback: 'Làm tốt.', recommended_grade: 'good' };
-  },
-  async generateRecallChallenge() {
-    return { vietnamese_sentence: 'Tin tức bất ngờ ấy khiến mọi người vô cùng phấn khích.', suggested_answer: 'The unexpected news thrilled everyone.' };
-  },
-  async aiStatus() {
-    return {
-      preference: 'auto',
-      activeProvider: 'manual',
-      resourceMode: 'balanced',
-      idleMinutes: 5,
-      local: { state: 'not-installed', percent: 0, model: { name: 'Qwen3 4B · Q4_K_M', size: 2497280256 } },
-      gemini: { configured: false, model: 'gemini-2.5-flash' }
-    };
-  },
-  async downloadLocalAI() { return this.aiStatus(); },
-  async pauseLocalAIDownload() { return this.aiStatus(); },
-  async deleteLocalAI() { return this.aiStatus(); },
-  async stopLocalAI() { return this.aiStatus(); },
-  async testLocalAI() { return { ok: true, elapsedMs: 1, sample: 'Hãy thử viết một câu tiếng Anh.' }; },
-  async checkAIAnswer(payload) {
-    return { meaning_score: null, sentence_score: null, meaning_feedback: 'Hãy tự đánh giá mức độ nhớ.', sentence_feedback: '', corrected_sentence: payload.sentence, overall_feedback: 'Chế độ tự đánh giá.', recommended_grade: null, provider: 'manual', manual: true };
-  },
-  async generateAIChallenge(payload) {
-    return { vietnamese_sentence: `Hãy viết một câu tiếng Anh diễn đạt đúng ý: “${payload.savedDefinition}”`, suggested_answer: '', provider: 'manual', manual: true };
-  },
-  onAIStatus() { return () => {}; },
   async updateStatus() { return { state: 'unavailable', currentVersion: '1.4.0', percent: 0, message: 'Cập nhật tự động chỉ hoạt động trên bản đã cài đặt.' }; },
   async checkForUpdates() { return this.updateStatus(); },
   async installUpdate() { return false; },
@@ -93,9 +63,6 @@ const state = {
   writingErrors: [],
   writingImage: '',
   review: null,
-  geminiConfigured: false,
-  geminiModel: 'gemini-2.5-flash',
-  aiStatus: null,
   updateStatus: null,
   selectedStreakDate: null,
   confirmAction: null,
@@ -110,7 +77,6 @@ const DAY = 24 * 60 * 60 * 1000;
 const FSRS_RETENTION_DEFAULT = 0.9;
 const FSRS_ALGORITHM = 'FSRS-6';
 const GRADE_TO_RATING = { again: 1, hard: 2, good: 3, easy: 4 };
-const prefetchingChallenges = new Set();
 
 function normalizedRetention(value) {
   const retention = Number(value);
@@ -415,19 +381,9 @@ function normalizeData(data) {
     fsrsRetention: FSRS_RETENTION_DEFAULT,
     theme: 'light',
     lastNotificationDate: null,
-    aiProvider: 'auto',
-    aiResourceMode: 'balanced',
-    aiIdleMinutes: 5,
-    aiUsage: { local: 0, gemini: 0, manual: 0 },
-    dailyGoal: 5,
     ...(data?.settings || {})
   };
   settings.fsrsRetention = normalizedRetention(settings.fsrsRetention);
-  settings.aiProvider = ['auto', 'local', 'gemini'].includes(settings.aiProvider) ? settings.aiProvider : 'auto';
-  settings.aiResourceMode = ['saver', 'balanced', 'fast'].includes(settings.aiResourceMode) ? settings.aiResourceMode : 'balanced';
-  settings.aiIdleMinutes = Math.max(1, Math.min(30, Number(settings.aiIdleMinutes) || 5));
-  settings.aiUsage = { local: 0, gemini: 0, manual: 0, ...(settings.aiUsage || {}) };
-  settings.dailyGoal = [3, 5, 10].includes(Number(settings.dailyGoal)) ? Number(settings.dailyGoal) : 5;
   settings.emailReminderEnabled = Boolean(settings.emailReminderEnabled);
   settings.emailReminderUrl = String(settings.emailReminderUrl || '').slice(0, 1000);
   settings.emailReminderEmail = String(settings.emailReminderEmail || '').slice(0, 254);
@@ -528,32 +484,31 @@ function normalizedTerm(value) {
 
 function activityMetricsByDate() {
   const metrics = {};
-  const day = (key) => (metrics[key] ||= { points: 0, added: 0, reviewed: 0, writing: 0 });
+  const day = (key) => (metrics[key] ||= { total: 0, added: 0, reviewed: 0, writing: 0 });
   state.data.words.forEach((word) => {
     const created = day(wordDate(word));
     created.added += 1;
-    created.points += 1;
+    created.total += 1;
     word.srs.history.forEach((item) => {
       const reviewed = day(localDate(item.at));
       reviewed.reviewed += 1;
-      reviewed.points += 2;
+      reviewed.total += 1;
     });
   });
   state.data.writing.entries.forEach((item) => {
     const writing = day(item.createdDate || localDate(item.createdAt));
     writing.writing += 1;
-    writing.points += 5;
+    writing.total += 1;
   });
   return metrics;
 }
 
 function activityCountByDate() {
-  return Object.fromEntries(Object.entries(activityMetricsByDate()).map(([key, value]) => [key, value.points]));
+  return Object.fromEntries(Object.entries(activityMetricsByDate()).map(([key, value]) => [key, value.total]));
 }
 
 function activityDates() {
-  const goal = state.data.settings.dailyGoal;
-  return new Set(Object.entries(activityMetricsByDate()).filter(([, value]) => value.points >= goal).map(([key]) => key));
+  return new Set(Object.entries(activityMetricsByDate()).filter(([, value]) => value.total > 0).map(([key]) => key));
 }
 
 function streak() {
@@ -575,8 +530,6 @@ function longestStreak() {
 
 function streakWeekMarkup(compact = false) {
   const learnedDates = activityDates();
-  const metrics = activityMetricsByDate();
-  const goal = state.data.settings.dailyGoal;
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   const labels = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -588,11 +541,9 @@ function streakWeekMarkup(compact = false) {
   return days.map((date, index) => {
     const key = localDate(date);
     const learned = learnedDates.has(key);
-    const points = metrics[key]?.points || 0;
-    const partial = points > 0 && !learned;
     const isToday = index === days.length - 1;
     const fullDate = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' }).format(date);
-    return `<div class="streak-day ${learned ? 'learned' : ''} ${partial ? 'partial' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)} · ${points}/${goal} điểm"><i aria-hidden="true">${learned ? '✓' : partial ? points : ''}</i><span>${labels[date.getDay()]}</span></div>`;
+    return `<div class="streak-day ${learned ? 'learned' : ''} ${isToday ? 'today' : ''}" title="${escapeHtml(fullDate)} · ${learned ? 'Đã học' : 'Chưa học'}"><i aria-hidden="true">${learned ? '✓' : ''}</i><span>${labels[date.getDay()]}</span></div>`;
   }).join('');
 }
 
@@ -696,8 +647,7 @@ function renderHome() {
   const currentStreak = streak();
   const bestStreak = longestStreak();
   const treeGrowth = globalThis.MilimTree?.nextGrowth?.(currentStreak);
-  const todayMetrics = activityMetricsByDate()[today] || { points: 0, added: 0, reviewed: 0, writing: 0 };
-  const goal = state.data.settings.dailyGoal;
+  const todayActive = activityDates().has(today);
   const week = weeklyGoalStats();
   const formatted = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date());
   $('#today-label').textContent = formatted.toUpperCase();
@@ -707,12 +657,12 @@ function renderHome() {
   $('#home-streak').textContent = currentStreak;
   $('#home-streak-week').innerHTML = streakWeekMarkup();
   $('#tree-best').textContent = treeGrowth?.current ? `${treeGrowth.current.label} · kỷ lục ${bestStreak} ngày` : `Dài nhất · ${bestStreak} ngày`;
-  $('#home-streak-message').textContent = todayMetrics.points >= goal
-    ? 'Đã đạt mục tiêu hôm nay.'
-    : `Còn ${goal - todayMetrics.points} điểm để hoàn thành hôm nay.`;
-  $('#home-today-activity').textContent = `${todayMetrics.points}/${goal} điểm`;
-  $('#home-goal-progress').style.width = `${Math.min(100, todayMetrics.points / goal * 100)}%`;
-  $('#home-weekly-summary').textContent = `${week.completed}/7 ngày đạt mục tiêu tuần này`;
+  $('#home-streak-message').textContent = todayActive
+    ? 'Hôm nay bạn đã học và nối chuỗi thành công!'
+    : 'Học một chút hôm nay để giữ chuỗi liên tục nhé.';
+  $('#home-today-activity').textContent = todayActive ? 'Đã học ✓' : 'Chưa học';
+  $('#home-goal-progress').style.width = todayActive ? '100%' : '0%';
+  $('#home-weekly-summary').textContent = `${week.completed}/7 ngày đã học tuần này`;
 
   const groups = groupByDate();
   const keys = Object.keys(groups).sort().reverse().slice(0, 3);
@@ -1289,12 +1239,6 @@ function deleteWritingEntry(id) {
   }, 'Xóa bài');
 }
 
-function aiProviderName(provider) {
-  if (provider === 'local') return 'AI cục bộ';
-  if (provider === 'gemini') return 'Gemini';
-  return 'Tự đánh giá';
-}
-
 function serializeReviewSession(review) {
   if (!review) return null;
   return {
@@ -1305,17 +1249,10 @@ function serializeReviewSession(review) {
     requeued: [...review.requeued],
     title: review.title,
     quick: review.quick,
-    mode: review.mode,
     revealed: review.revealed,
     fastAnswerState: review.fastAnswerState || '',
-    deepWords: [...review.deepWords],
     endsAt: review.endsAt,
-    checking: false,
-    result: review.result,
-    draft: review.draft,
-    challenge: review.challenge,
-    challengeLoading: false,
-    challengeError: ''
+    draft: review.draft
   };
 }
 
@@ -1341,69 +1278,12 @@ function restoreReviewSession() {
     requeued: new Set(Array.isArray(saved.requeued) ? saved.requeued : []),
     title: String(saved.title || 'Phiên ôn đang dở'),
     quick: Boolean(saved.quick),
-    mode: ['fast', 'deep'].includes(saved.mode) ? saved.mode : 'deep',
     revealed: Boolean(saved.revealed),
-    deepWords: new Set(Array.isArray(saved.deepWords) ? saved.deepWords.filter((id) => knownIds.has(id)) : []),
     endsAt: saved.quick && Number(saved.endsAt) > Date.now() ? Number(saved.endsAt) : null,
-    checking: false,
-    result: saved.result || null,
-    draft: { sentence: '', term: '', ...(saved.draft || {}) },
-    fastAnswerState: ['wrong', 'correct', 'revealed'].includes(saved.fastAnswerState) ? saved.fastAnswerState : '',
-    challenge: saved.challenge && !challengeLeaksTarget(saved.challenge.vietnamese_sentence, state.data.words.find((word) => word.id === queue[0])?.term)
-      ? saved.challenge
-      : null,
-    challengeLoading: false,
-    challengeError: ''
+    draft: { term: '', ...(saved.draft || {}) },
+    fastAnswerState: ['wrong', 'correct', 'revealed'].includes(saved.fastAnswerState) ? saved.fastAnswerState : ''
   };
   return true;
-}
-
-function cachedChallenge(word) {
-  word.recallCache = (word.recallCache || []).filter((item) => item.vietnamese_sentence && !challengeLeaksTarget(item.vietnamese_sentence, word.term));
-  const available = word.recallCache;
-  if (!available.length) return null;
-  const selected = [...available].sort((a, b) => (a.uses || 0) - (b.uses || 0))[0];
-  selected.uses = (selected.uses || 0) + 1;
-  return { ...selected, provider: selected.provider || 'cache', fromCache: true, manual: false };
-}
-
-function cacheChallenge(word, challenge) {
-  if (!challenge || challenge.manual || !challenge.vietnamese_sentence || challengeLeaksTarget(challenge.vietnamese_sentence, word.term)) return;
-  word.recallCache ||= [];
-  const duplicate = word.recallCache.some((item) => item.vietnamese_sentence === challenge.vietnamese_sentence);
-  if (!duplicate) {
-    word.recallCache.push({
-      vietnamese_sentence: challenge.vietnamese_sentence,
-      suggested_answer: challenge.suggested_answer,
-      provider: challenge.provider,
-      createdAt: new Date().toISOString(),
-      uses: 1
-    });
-    word.recallCache = word.recallCache.slice(-5);
-  }
-}
-
-function prefetchChallenge(word) {
-  if (!word || (word.recallCache || []).length >= 3 || prefetchingChallenges.has(word.id)) return;
-  prefetchingChallenges.add(word.id);
-  api.generateAIChallenge({
-    word: word.term,
-    partOfSpeech: wordParts(word).map(posName).join(', '),
-    savedDefinition: definitionText(word, true)
-  }).then(async (challenge) => {
-    cacheChallenge(word, challenge);
-    await persist();
-  }).catch(() => {
-    /* Prefetch is optional; the active review always keeps its own fallback. */
-  }).finally(() => prefetchingChallenges.delete(word.id));
-}
-
-function reviewAIStatusMarkup() {
-  const status = state.aiStatus;
-  const provider = status?.activeProvider || 'manual';
-  if (provider === 'local') return `<div class="gemini-ready local-ready">● AI cục bộ sẵn sàng · ${escapeHtml(status.local?.model?.name || 'Qwen3 4B')}</div>`;
-  if (provider === 'gemini') return `<div class="gemini-ready">✦ Gemini ${escapeHtml(status.gemini?.model || state.geminiModel)} đã sẵn sàng</div>`;
-  return '<div class="gemini-notice"><strong>Đang dùng chế độ tự đánh giá</strong><span>Bạn vẫn có thể ôn ngay; tải AI cục bộ để được chấm offline.</span><button class="text-btn" data-go="settings">Thiết lập →</button></div>';
 }
 
 function renderReviewWelcome() {
@@ -1414,14 +1294,13 @@ function renderReviewWelcome() {
   $('#review-title').textContent = 'Ôn tập hôm nay';
   $('#review-exit').classList.add('hidden');
   const overdueList = overdue.slice(0, 5).map((word) => `<span>${escapeHtml(word.term)}</span>`).join('');
-  $('#review-stage').innerHTML = `<div class="review-dashboard">${resumable ? `<section class="resume-review-card"><div><span>PHIÊN ĐANG DỞ</span><strong>${escapeHtml(state.data.reviewSession.title || 'Ôn tập')}</strong><p>Còn ${state.data.reviewSession.queue.length} từ · tiến độ đã được lưu tự động.</p></div><button class="primary-btn" id="resume-review">Tiếp tục phiên →</button></section>` : ''}<div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">NHỚ NHANH · ÔN SÂU KHI CẦN</span><h2>${due.length ? `${due.length} từ đang chờ ôn` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Xem nghĩa rồi tự nhập thuật ngữ tiếng Anh. Từ bị Quên hoặc Khó sẽ được Milim đưa sang luyện sâu bằng AI.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên 5 phút hoặc luyện sâu bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p><div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? '<button class="primary-btn" id="start-due-review">Ôn nhanh từ đến hạn</button><button class="soft-btn" id="start-deep-review">Ôn sâu bằng AI</button>' : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn sâu bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Phiên nhanh 5 phút</button>' : ''}</div><p class="review-shortcut-note">Phím tắt khi ôn nhanh: Enter để kiểm tra · 1 Quên · 2 Khó · 3 Nhớ · 4 Rất dễ</p></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Ôn nhanh trước; từ còn yếu sẽ tự chuyển sang luyện sâu.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn nhanh từ quá hạn</button></section>` : ''}</div>`;
+  $('#review-stage').innerHTML = `<div class="review-dashboard">${resumable ? `<section class="resume-review-card"><div><span>PHIÊN ĐANG DỞ</span><strong>${escapeHtml(state.data.reviewSession.title || 'Ôn tập')}</strong><p>Còn ${state.data.reviewSession.queue.length} từ · tiến độ đã được lưu tự động.</p></div><button class="primary-btn" id="resume-review">Tiếp tục phiên →</button></section>` : ''}<div class="review-stage-card"><div class="review-welcome"><img src="../assets/milim-icon-rounded.png" alt="Mèo milim"><span class="review-mode-pill">ACTIVE RECALL · FSRS-6</span><h2>${due.length ? `${due.length} từ đang chờ ôn` : 'Bạn đã hoàn thành hôm nay'}</h2><p>${due.length ? 'Xem nghĩa rồi tự nhập thuật ngữ tiếng Anh hoặc mở thẻ để chấm điểm theo chu kỳ FSRS.' : (state.data.words.length ? 'Bạn có thể bắt đầu một phiên 5 phút hoặc ôn lại bộ gần nhất.' : 'Hãy thêm những từ đầu tiên để bắt đầu.')}</p><div class="review-summary"><span>${state.data.words.length} từ trong thư viện</span><span>${streak()} ngày liên tục</span></div><div class="review-welcome-actions">${due.length ? `<button class="primary-btn" id="start-due-review">Ôn từ đến hạn (${due.length})</button>` : latestDate ? `<button class="soft-btn" data-review-date="${latestDate}">Ôn bộ gần nhất</button>` : '<button class="primary-btn" data-go="add">Thêm từ đầu tiên</button>'}${state.data.words.length ? '<button class="soft-btn" id="start-quick-review">Phiên nhanh 5 phút</button>' : ''}</div><p class="review-shortcut-note">Phím tắt khi ôn: Enter để kiểm tra · 1 Quên · 2 Khó · 3 Nhớ · 4 Rất dễ</p></div></div>${overdue.length ? `<section class="overdue-panel"><div><p class="eyebrow">TỪ QUÁ HẠN</p><h3>${overdue.length} từ cần ưu tiên</h3><p>Ôn lại những từ đã quá hạn để củng cố trí nhớ.</p><div class="overdue-terms">${overdueList}${overdue.length > 5 ? `<span>+${overdue.length - 5}</span>` : ''}</div></div><button class="soft-btn" id="start-overdue-review">Ôn từ quá hạn</button></section>` : ''}</div>`;
 }
 
 async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
   if (!words.length) { showToast('Bộ này chưa có từ để ôn.', '!', true); return; }
   const shuffled = shuffleWords(words);
   const selected = options.quick ? shuffled.slice(0, 40) : shuffled;
-  const mode = options.mode === 'fast' ? 'fast' : 'deep';
   state.review = {
     queue: selected.map((word) => word.id),
     total: selected.length,
@@ -1430,17 +1309,10 @@ async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
     requeued: new Set(),
     title,
     quick: Boolean(options.quick),
-    mode,
     revealed: false,
     fastAnswerState: '',
-    deepWords: new Set(),
     endsAt: options.quick ? Date.now() + 5 * 60 * 1000 : null,
-    checking: false,
-    result: null,
-    draft: { sentence: '', term: '' },
-    challenge: null,
-    challengeLoading: false,
-    challengeError: ''
+    draft: { term: '' }
   };
   await persistReviewSession();
   navigate('review');
@@ -1451,7 +1323,7 @@ async function startReview(words, title = 'Ôn tập hôm nay', options = {}) {
 
 function startQuickReview() {
   const candidates = dueWords().length ? dueWords() : [...state.data.words].sort((a, b) => new Date(a.srs.lastReviewedAt || 0) - new Date(b.srs.lastReviewedAt || 0));
-  startReview(candidates, 'Ôn nhanh 5 phút', { quick: true, mode: 'fast' });
+  startReview(candidates, 'Ôn nhanh 5 phút', { quick: true });
 }
 
 function intervalLabel(days, grade, dueAt = null, from = new Date()) {
@@ -1511,7 +1383,7 @@ function renderFastReviewCard(review, word, progressHeader) {
       </div>
       ${reviewNoteMarkup(word)}
       <div class="fast-grade-grid">${gradeChoices}</div>
-      <div class="fast-answer-footer"><span>Phím 1–4 để chuyển ngay sang từ tiếp theo</span>${!review.quick ? '<button class="deep-practice-link" id="practice-deep">Chưa chắc? Luyện sâu với AI →</button>' : ''}</div>
+      <div class="fast-answer-footer"><span>Phím 1–4 để chuyển ngay sang từ tiếp theo</span></div>
     </div>` : `
     <form class="fast-term-form ${review.fastAnswerState === 'wrong' ? 'has-error' : ''}" id="fast-answer-form">
       <label for="fast-term-input">THUẬT NGỮ TIẾNG ANH</label>
@@ -1519,7 +1391,7 @@ function renderFastReviewCard(review, word, progressHeader) {
       ${review.fastAnswerState === 'wrong' ? '<p class="fast-term-error">Chưa đúng. Hãy thử lại một lần nữa nhé.</p>' : '<p class="fast-term-hint">Không phân biệt chữ hoa, chữ thường và khoảng trắng thừa.</p>'}
       <button type="button" class="fast-show-answer" id="reveal-fast-answer">Không nhớ · xem đáp án</button>
     </form>`;
-  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>${review.quick ? 'Phiên 5 phút' : 'Ôn nhanh'} · không gọi AI</b>${!review.quick && !review.revealed ? '<button class="regenerate-challenge" id="practice-deep">Ôn sâu từ này</button>' : ''}</div></div><div class="fast-cue-panel"><div class="fast-cue-mark">✦</div><div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p>${definitionsMarkup}</div></div>${answer}</div></div>`;
+  $('#review-stage').innerHTML = `<div class="review-session fast-review-session">${progressHeader}<div class="review-question-card fast-recall-card"><div class="recall-meta"><span>NHỚ TỪ TIẾNG ANH</span><div><b>${review.quick ? 'Phiên 5 phút' : 'Ôn tập'}</b></div></div><div class="fast-cue-panel"><div class="fast-cue-mark">✦</div><div><p class="fast-prompt-label">NGHĨA ĐÃ LƯU</p>${definitionsMarkup}</div></div>${answer}</div></div>`;
   updateQuickTimer();
   if (!review.revealed) setTimeout(() => {
     const input = $('#fast-term-input');
@@ -1566,116 +1438,8 @@ function renderReviewCard() {
   const word = state.data.words.find((item) => item.id === review.queue[0]);
   if (!word) { review.queue.shift(); persistReviewSession(); renderReviewCard(); return; }
   const progress = Math.min(100, (review.answered / Math.max(1, review.total)) * 100);
-  const deepMode = review.mode === 'deep' || review.deepWords.has(word.id);
   const progressHeader = `<div class="review-progress"><div class="progress-track"><i style="width:${progress}%"></i></div><span>Từ ${Math.min(review.answered + 1, review.total)} / ${review.total}</span>${review.quick ? '<strong class="quick-timer" id="quick-timer">05:00</strong>' : ''}</div>`;
-  if (!deepMode) {
-    renderFastReviewCard(review, word, progressHeader);
-    return;
-  }
-  if (!review.challenge && !review.challengeLoading && !review.challengeError) loadReviewChallenge(review, word);
-  const result = review.result;
-  const challenge = review.challenge;
-  const nextReviewSchedule = result?.recommended_grade ? projectedSchedule(word, result.recommended_grade) : null;
-  if (!challenge) {
-    const loadingContent = review.challengeError
-      ? `<div class="challenge-state error"><span>!</span><h2>Chưa tạo được câu hỏi</h2><p>${escapeHtml(review.challengeError)}</p><button class="soft-btn" id="retry-challenge">Thử lại</button></div>`
-      : '<div class="challenge-state"><i class="spinner"></i><h2>Đang chuẩn bị một câu cho bạn…</h2><p>Lần đầu nạp model cục bộ có thể mất một chút thời gian.</p></div>';
-    $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card">${loadingContent}</div></div>`;
-    updateQuickTimer();
-    return;
-  }
-  const savedDefinitions = definitionText(word, true);
-  const provider = result?.provider || challenge.provider || 'manual';
-  const providerLabel = aiProviderName(provider);
-  const gradeChoices = result?.manual ? ['again', 'hard', 'good', 'easy'].map((grade) => {
-    const schedule = projectedSchedule(word, grade);
-    return `<button class="manual-grade ${grade}" data-manual-grade="${grade}"><strong>${gradeName(grade)}</strong><span>${intervalLabel(schedule.interval, grade, schedule.dueAt)}</span></button>`;
-  }).join('') : '';
-  const feedback = result ? `
-    <section class="gemini-feedback recall-feedback">
-      <div class="feedback-reveal"><span>TỪ VỪA ĐƯỢC GIẤU</span><strong>${escapeHtml(word.term)}</strong>${wordParts(word).map((part) => `<i class="pos-label pos-${escapeHtml(part)}">${escapeHtml(posName(part))}</i>`).join('')}</div>
-      <div class="feedback-title"><div><span>✦ ${escapeHtml(providerLabel.toUpperCase())} NHẬN XÉT</span><h3>${escapeHtml(result.overall_feedback)}</h3></div><div class="score-pair"><b>${Number.isFinite(result.meaning_score) ? `${result.meaning_score}<small>/10</small>` : '—'}<em>Đúng ý</em></b><b>${Number.isFinite(result.sentence_score) ? `${result.sentence_score}<small>/10</small>` : '—'}<em>Tiếng Anh</em></b></div></div>
-      <div class="feedback-grid"><article><strong>Ý nghĩa & từ mục tiêu</strong><p>${escapeHtml(result.meaning_feedback)}</p><small>${escapeHtml(savedDefinitions)}</small></article><article><strong>Ngữ pháp & độ tự nhiên</strong><p>${escapeHtml(result.sentence_feedback)}</p><small>${result.corrected_sentence || challenge.suggested_answer ? `Câu đề xuất: ${escapeHtml(result.corrected_sentence || challenge.suggested_answer)}` : 'Hãy đối chiếu lại câu bạn vừa viết.'}</small></article></div>
-      ${reviewNoteMarkup(word)}
-      ${result.manual ? `<div class="manual-grade-panel"><span>TỰ ĐÁNH GIÁ MỨC ĐỘ NHỚ</span><div>${gradeChoices}</div></div>` : `<div class="feedback-footer"><span>Đánh giá từ vựng: <b>${gradeName(result.recommended_grade)}</b> · FSRS hẹn lại sau ${intervalLabel(nextReviewSchedule.interval, result.recommended_grade, nextReviewSchedule.dueAt)}</span><button class="primary-btn" id="continue-review">Câu tiếp theo →</button></div>`}
-      <p class="ai-disclaimer">Lịch ôn chỉ dựa trên điểm Đúng ý. Điểm Tiếng Anh được lưu để góp ý và hoàn toàn không ảnh hưởng Again / Hard / Good / Easy.</p>
-    </section>` : '';
-  const sourceNote = challenge.fromCache ? 'Câu hỏi đã chuẩn bị sẵn' : challenge.manual ? 'Chế độ tự đánh giá' : `Tạo bởi ${aiProviderName(challenge.provider)}`;
-  $('#review-stage').innerHTML = `<div class="review-session">${progressHeader}<div class="review-question-card recall-card"><div class="recall-meta"><span>DỊCH SANG TIẾNG ANH</span><div><b>${escapeHtml(sourceNote)} · không có gợi ý từ</b>${!result && !review.checking ? '<button class="regenerate-challenge" id="regenerate-challenge">Tạo câu khác</button>' : ''}</div></div><blockquote>${escapeHtml(challenge.vietnamese_sentence)}</blockquote><p class="recall-instruction">Hãy tự nhận ra từ đang được ôn và dùng nó trong bản dịch của bạn.</p><form class="answer-form recall-answer-form" id="ai-answer-form"><label><span>CÂU TRẢ LỜI CỦA BẠN</span><textarea id="review-sentence" rows="4" maxlength="1000" placeholder="Write the full sentence in English..." ${result ? 'disabled' : ''}>${escapeHtml(review.draft.sentence)}</textarea></label>${!result ? `<div class="answer-submit"><span>${challenge.manual ? 'Milim sẽ hiện từ mục tiêu để bạn tự đánh giá.' : 'AI sẽ kiểm tra đúng ý, từ mục tiêu và độ tự nhiên.'}</span><button class="primary-btn" type="submit" ${review.checking ? 'disabled' : ''}>${review.checking ? '<i class="spinner"></i> Đang chấm...' : 'Chấm câu trả lời ✦'}</button></div>` : ''}</form></div>${feedback}</div>`;
-  updateQuickTimer();
-}
-
-async function loadReviewChallenge(review, word) {
-  if (review.challengeLoading) return;
-  const cached = cachedChallenge(word);
-  if (cached) {
-    review.challenge = cached;
-    await persistReviewSession();
-    prefetchChallenge(word);
-    renderReviewCard();
-    return;
-  }
-  review.challengeLoading = true;
-  review.challengeError = '';
-  renderReviewCard();
-  try {
-    const challenge = await api.generateAIChallenge({
-      word: word.term,
-      partOfSpeech: wordParts(word).map(posName).join(', '),
-      savedDefinition: definitionText(word, true)
-    });
-    if (state.review !== review || review.queue[0] !== word.id) return;
-    review.challenge = challenge;
-    review.challengeLoading = false;
-    cacheChallenge(word, challenge);
-    await persistReviewSession();
-    prefetchChallenge(word);
-    renderReviewCard();
-  } catch (error) {
-    if (state.review !== review) return;
-    review.challengeLoading = false;
-    review.challengeError = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '') || 'Hãy thử lại sau.';
-    renderReviewCard();
-  }
-}
-
-async function submitAIAnswer(event) {
-  event.preventDefault();
-  const review = state.review;
-  if (!review || review.checking || review.result) return;
-  const sentence = $('#review-sentence').value.trim();
-  review.draft = { sentence };
-  if (!sentence) {
-    showToast('Hãy viết lại câu bằng tiếng Anh.', '!', true);
-    $('#review-sentence').focus();
-    return;
-  }
-  const word = state.data.words.find((item) => item.id === review.queue[0]);
-  if (!word) return;
-  review.checking = true;
-  renderReviewCard();
-  try {
-    const result = await api.checkAIAnswer({
-      mode: 'recall',
-      word: word.term,
-      partOfSpeech: wordParts(word).map(posName).join(', '),
-      savedDefinition: definitionText(word, true),
-      vietnamesePrompt: review.challenge.vietnamese_sentence,
-      suggestedAnswer: review.challenge.suggested_answer,
-      sentence
-    });
-    if (state.review !== review) return;
-    review.result = result;
-    review.checking = false;
-    await persistReviewSession();
-    renderReviewCard();
-  } catch (error) {
-    if (state.review !== review) return;
-    review.checking = false;
-    renderReviewCard();
-    const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-    showToast(message || 'Chưa thể chấm bằng AI. Bạn có thể chuyển sang tự đánh giá.', '!', true);
-  }
+  renderFastReviewCard(review, word, progressHeader);
 }
 
 function updateQuickTimer() {
@@ -1727,40 +1491,23 @@ function applySrs(word, grade, metadata = {}) {
   });
 }
 
-async function gradeCurrent(grade, result = null) {
+async function gradeCurrent(grade) {
   const review = state.review;
   if (!review?.queue.length) return;
   const id = review.queue.shift();
   const word = state.data.words.find((item) => item.id === id);
   if (!word) return renderReviewCard();
-  const wasDeep = review.mode === 'deep' || review.deepWords.has(id);
-  applySrs(word, grade, result ? {
-    meaningScore: Number.isFinite(result.meaning_score) ? result.meaning_score : null,
-    sentenceScore: Number.isFinite(result.sentence_score) ? result.sentence_score : null,
-    aiProvider: result.provider || 'manual',
-    reviewMode: 'deep'
-  } : { reviewMode: wasDeep ? 'deep' : 'fast' });
-  if (result) {
-    const provider = ['local', 'gemini', 'manual'].includes(result.provider) ? result.provider : 'manual';
-    state.data.settings.aiUsage[provider] = (Number(state.data.settings.aiUsage[provider]) || 0) + 1;
-  }
+  applySrs(word, grade, { reviewMode: 'flashcard' });
   review.answered += 1;
   if (grade === 'good' || grade === 'easy') review.correct += 1;
-  const shouldEscalate = !review.quick && !wasDeep && (grade === 'again' || grade === 'hard');
-  if ((grade === 'again' || shouldEscalate) && !review.requeued.has(id)) {
+  if (grade === 'again' && !review.requeued.has(id)) {
     review.requeued.add(id);
     review.queue.push(id);
     review.total += 1;
-    if (shouldEscalate) review.deepWords.add(id);
   }
-  if (grade === 'good' || grade === 'easy') review.deepWords.delete(id);
-  review.result = null;
   review.revealed = false;
   review.fastAnswerState = '';
-  review.draft = { sentence: '', term: '' };
-  review.challenge = null;
-  review.challengeLoading = false;
-  review.challengeError = '';
+  review.draft = { term: '' };
   state.data.reviewSession = serializeReviewSession(review);
   await persist();
   syncEmailStudySignal(false);
@@ -1779,7 +1526,6 @@ async function endReview() {
   state.review = null;
   state.data.reviewSession = null;
   await persist();
-  api.stopLocalAI?.().catch(() => {});
   navigate('home');
 }
 
@@ -1793,9 +1539,6 @@ function renderStats() {
     ['bookmark', total, 'Tổng từ đã lưu'], ['sparkles', mastered, 'Từ đã ghi nhớ'], ['repeat', reviewCount, 'Lượt ôn tập']
   ].map(([icon, value, label]) => `<article class="stat-card"><i>${uiIcon(icon)}</i><strong>${value}</strong><span>${label}</span></article>`).join('');
   $('#stat-cards').innerHTML = `${regularStats}<article class="stat-card streak-stat-card"><i>${uiIcon('flame')}</i><strong>${currentStreak}</strong><span>Chuỗi hiện tại · dài nhất ${bestStreak} ngày</span></article>`;
-  const usage = state.data.settings.aiUsage;
-  const aiTotal = (usage.local || 0) + (usage.gemini || 0) + (usage.manual || 0);
-  $('#ai-stats-strip').innerHTML = `<div><span>AI & TỰ ĐÁNH GIÁ</span><strong>${aiTotal} lượt chấm</strong></div><p><b>${usage.local || 0}</b> cục bộ</p><p><b>${usage.gemini || 0}</b> Gemini</p><p><b>${usage.manual || 0}</b> tự đánh giá</p>`;
 
   const days = Array.from({ length: 7 }, (_, index) => new Date(Date.now() - (6 - index) * DAY));
   const counts = days.map((date) => {
@@ -1842,19 +1585,17 @@ function renderStats() {
 function renderStreakCalendar() {
   const counts = activityCountByDate();
   const metrics = activityMetricsByDate();
-  const goal = state.data.settings.dailyGoal;
+  const learnedDates = activityDates();
   const today = fromDateKey(localDate());
   const mondayOffset = (today.getDay() + 6) % 7;
   const start = new Date(today.getTime() - (11 * 7 + mondayOffset) * DAY);
   const days = Array.from({ length: 12 * 7 }, (_, index) => new Date(start.getTime() + index * DAY));
-  const max = Math.max(goal, ...Object.values(counts));
+  const max = Math.max(1, ...Object.values(counts));
   const week = weeklyGoalStats();
-  const totalPoints = Object.values(metrics).reduce((sum, item) => sum + item.points, 0);
-  $('#streak-daily-goal').value = String(goal);
   const growth = globalThis.MilimTree?.nextGrowth?.(streak());
-  const growthMessage = growth?.target ? `Còn ${growth.remaining} ngày đạt mục tiêu để cây lên “${growth.target.label}”.` : 'Cây học tập đã đạt giai đoạn cao nhất.';
-  $('#streak-calendar-caption').textContent = `Một ngày được nối chuỗi khi đạt ít nhất ${goal} điểm. ${growthMessage}`;
-  $('#streak-modal-summary').innerHTML = `<div><strong>${streak()}</strong><span>ngày hiện tại</span></div><div><strong>${longestStreak()}</strong><span>dài nhất</span></div><div><strong>${week.completed}/7</strong><span>tuần này</span></div><div><strong>${totalPoints}</strong><span>tổng điểm học</span></div>`;
+  const growthMessage = growth?.target ? `Còn ${growth.remaining} ngày học để cây lên “${growth.target.label}”.` : 'Cây học tập đã đạt giai đoạn cao nhất.';
+  $('#streak-calendar-caption').textContent = `Mỗi ngày có hoạt động học (thêm từ, ôn tập hoặc viết bài) sẽ được nối chuỗi. ${growthMessage}`;
+  $('#streak-modal-summary').innerHTML = `<div><strong>${streak()}</strong><span>ngày hiện tại</span></div><div><strong>${longestStreak()}</strong><span>dài nhất</span></div><div><strong>${week.completed}/7</strong><span>tuần này</span></div><div><strong>${learnedDates.size}</strong><span>tổng ngày đã học</span></div>`;
   $('#streak-calendar').innerHTML = `
     <div class="streak-calendar-weekdays">${['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((day) => `<span>${day}</span>`).join('')}</div>
     <div class="streak-calendar-grid">
@@ -1862,8 +1603,9 @@ function renderStreakCalendar() {
         const key = localDate(date);
         const count = counts[key] || 0;
         const level = count ? Math.max(1, Math.ceil(count / max * 4)) : 0;
+        const learned = learnedDates.has(key);
         const label = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(date);
-        return `<button type="button" class="streak-calendar-day level-${level} ${count >= goal ? 'achieved' : count ? 'partial' : ''} ${key === localDate() ? 'today' : ''} ${key === state.selectedStreakDate ? 'selected' : ''}" data-streak-date="${key}" title="${label} · ${count}/${goal} điểm"><span>${date.getDate()}</span>${count ? `<b>${count}</b>` : ''}</button>`;
+        return `<button type="button" class="streak-calendar-day level-${level} ${learned ? 'achieved' : ''} ${key === localDate() ? 'today' : ''} ${key === state.selectedStreakDate ? 'selected' : ''}" data-streak-date="${key}" title="${label} · ${learned ? `Đã học (${count} hoạt động)` : 'Chưa học'}"><span>${date.getDate()}</span>${count ? `<b>${count}</b>` : ''}</button>`;
       }).join('')}
     </div>`;
   renderStreakDayDetail(state.selectedStreakDate || localDate());
@@ -1871,15 +1613,15 @@ function renderStreakCalendar() {
 
 function renderStreakDayDetail(key) {
   state.selectedStreakDate = key;
-  const metric = activityMetricsByDate()[key] || { points: 0, added: 0, reviewed: 0, writing: 0 };
-  const goal = state.data.settings.dailyGoal;
+  const metric = activityMetricsByDate()[key] || { total: 0, added: 0, reviewed: 0, writing: 0 };
+  const hasActivity = metric.total > 0;
   const label = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(fromDateKey(key));
   const activities = [
-    metric.reviewed ? `${metric.reviewed} lượt ôn × 2` : '',
-    metric.added ? `${metric.added} từ mới × 1` : '',
-    metric.writing ? `${metric.writing} bài Writing × 5` : ''
+    metric.reviewed ? `${metric.reviewed} lượt ôn` : '',
+    metric.added ? `${metric.added} từ mới` : '',
+    metric.writing ? `${metric.writing} bài Writing` : ''
   ].filter(Boolean);
-  $('#streak-day-detail').innerHTML = `<div><span>${escapeHtml(label)}</span><strong>${metric.points}/${goal} điểm · ${metric.points >= goal ? 'Đã nối chuỗi' : metric.points ? 'Chưa đạt mục tiêu' : 'Chưa học'}</strong></div><p>${activities.length ? escapeHtml(activities.join(' · ')) : 'Ngày này chưa có hoạt động học được ghi lại.'}</p>`;
+  $('#streak-day-detail').innerHTML = `<div><span>${escapeHtml(label)}</span><strong>${hasActivity ? 'Đã học ✓' : 'Chưa học'}</strong></div><p>${activities.length ? escapeHtml(activities.join(' · ')) : 'Ngày này chưa có hoạt động học được ghi lại.'}</p>`;
   $$('.streak-calendar-day').forEach((node) => node.classList.toggle('selected', node.dataset.streakDate === key));
 }
 
@@ -2006,69 +1748,8 @@ function renderSettings() {
   const retention = Math.round(normalizedRetention(state.data.settings.fsrsRetention) * 100);
   $('#retention-input').value = String(retention);
   $('#retention-value').textContent = `${retention}%`;
-  $('#ai-provider').value = state.data.settings.aiProvider;
-  $('#ai-resource-mode').value = state.data.settings.aiResourceMode;
-  $('#ai-idle-minutes').value = String(state.data.settings.aiIdleMinutes);
-  const usage = state.data.settings.aiUsage;
-  $('#ai-usage').innerHTML = `<span><b>${usage.local || 0}</b> lượt chấm cục bộ</span><span><b>${usage.gemini || 0}</b> lượt Gemini</span><span><b>${usage.manual || 0}</b> lượt tự đánh giá</span>`;
-  refreshAIStatus();
   refreshUpdateStatus();
   renderGlobal();
-}
-
-function formatBytes(bytes) {
-  const value = Math.max(0, Number(bytes) || 0);
-  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
-  if (value >= 1024 ** 2) return `${Math.round(value / 1024 ** 2)} MB`;
-  return `${Math.round(value / 1024)} KB`;
-}
-
-function renderLocalAIStatus(local) {
-  if (!local) return;
-  const statusNode = $('#local-ai-status');
-  const modelName = $('#local-ai-model-name');
-  const sizeNode = $('#local-ai-size');
-  const progress = $('#local-ai-progress');
-  const progressBar = $('#local-ai-progress-bar');
-  const action = $('#local-ai-action');
-  const test = $('#local-ai-test');
-  const stop = $('#local-ai-stop');
-  const remove = $('#local-ai-delete');
-  if (!statusNode || !action) return;
-  const busy = ['downloading', 'verifying', 'extracting'].includes(local.state);
-  const installed = ['ready', 'loading', 'running', 'generating'].includes(local.state);
-  modelName.textContent = local.model?.name || 'Qwen3 4B · Q4_K_M';
-  sizeNode.textContent = formatBytes(local.model?.size || 2497280256);
-  statusNode.textContent = local.message || 'Đang đọc trạng thái AI cục bộ…';
-  statusNode.classList.toggle('update-error', local.state === 'error');
-  progress.classList.toggle('hidden', !(busy || local.state === 'paused'));
-  progressBar.style.width = `${Math.max(0, Math.min(100, Number(local.percent) || 0))}%`;
-  action.classList.toggle('hidden', installed || ['verifying', 'extracting'].includes(local.state));
-  action.disabled = false;
-  action.textContent = local.state === 'downloading' ? 'Tạm dừng tải'
-    : local.state === 'paused' ? 'Tiếp tục tải'
-      : local.state === 'error' ? 'Thử tải lại'
-        : 'Tải AI cục bộ · 2.33 GB';
-  test.classList.toggle('hidden', !installed);
-  test.disabled = ['loading', 'generating'].includes(local.state);
-  stop.classList.toggle('hidden', !['loading', 'running', 'generating'].includes(local.state));
-  remove.classList.toggle('hidden', !installed && local.state !== 'paused' && local.state !== 'error');
-}
-
-async function refreshAIStatus() {
-  try {
-    state.aiStatus = await api.aiStatus();
-    state.geminiConfigured = Boolean(state.aiStatus.gemini?.configured);
-    state.geminiModel = state.aiStatus.gemini?.model || 'gemini-2.5-flash';
-    renderLocalAIStatus(state.aiStatus.local);
-    const statusNode = $('#gemini-status');
-    if (statusNode) {
-      statusNode.textContent = state.geminiConfigured ? `Đã kết nối · ${state.geminiModel}` : 'Chưa có API key · không ảnh hưởng AI cục bộ.';
-      statusNode.classList.toggle('connected', state.geminiConfigured);
-    }
-  } catch {
-    renderLocalAIStatus({ state: 'error', message: 'Không thể đọc trạng thái AI cục bộ.', model: { name: 'Qwen3 4B · Q4_K_M', size: 2497280256 } });
-  }
 }
 
 function renderUpdateStatus(status) {
@@ -2402,13 +2083,6 @@ function bindEvents() {
   $('#review-exit').addEventListener('click', () => askConfirm('Kết thúc phiên ôn?', 'Tiến độ những từ đã trả lời vẫn được lưu.', () => { closeConfirm(); endReview(); }, 'Kết thúc'));
 
   $('#notification-toggle').addEventListener('change', async (event) => { state.data.settings.notifications = event.target.checked; await persist(); showToast(event.target.checked ? 'Đã bật nhắc ôn tập.' : 'Đã tắt nhắc ôn tập.'); });
-  $('#streak-daily-goal').addEventListener('change', async (event) => {
-    state.data.settings.dailyGoal = Number(event.target.value);
-    await persist();
-    renderStreakCalendar();
-    renderHome();
-    showToast(`Mục tiêu mới: ${event.target.value} điểm mỗi ngày.`);
-  });
   $('#notification-time').addEventListener('change', async (event) => { state.data.settings.notificationTime = event.target.value; state.data.settings.lastNotificationDate = null; await persist(); showToast('Đã đổi giờ nhắc học.'); });
   $('#email-reminder-toggle').addEventListener('change', (event) => {
     updateEmailReminderDisclosure(event.target.checked);
@@ -2441,99 +2115,6 @@ function bindEvents() {
     state.data.settings.fsrsRetention = normalizedRetention(Number(event.target.value) / 100);
     await persist();
     showToast(`FSRS sẽ hướng tới mức nhớ ${event.target.value}% từ lần ôn tiếp theo.`);
-  });
-  $('#ai-provider').addEventListener('change', async (event) => {
-    state.data.settings.aiProvider = event.target.value;
-    await persist();
-    await refreshAIStatus();
-    showToast(`Đã chọn ${event.target.options[event.target.selectedIndex].text}.`);
-  });
-  $('#ai-resource-mode').addEventListener('change', async (event) => {
-    state.data.settings.aiResourceMode = event.target.value;
-    await persist();
-    showToast('Chế độ tài nguyên sẽ áp dụng từ lần nạp model tiếp theo.');
-  });
-  $('#ai-idle-minutes').addEventListener('change', async (event) => {
-    state.data.settings.aiIdleMinutes = Number(event.target.value);
-    await persist();
-    showToast(`AI sẽ tự giải phóng RAM sau ${event.target.value} phút không dùng.`);
-  });
-  $('#local-ai-action').addEventListener('click', async () => {
-    const local = state.aiStatus?.local || {};
-    if (local.state === 'downloading') {
-      await api.pauseLocalAIDownload();
-      await refreshAIStatus();
-      return;
-    }
-    renderLocalAIStatus({ ...local, state: 'downloading', message: 'Đang chuẩn bị tải AI cục bộ…' });
-    api.downloadLocalAI()
-      .then(async (status) => {
-        await refreshAIStatus();
-        if (['ready', 'running'].includes(status?.local?.state)) showToast('AI cục bộ đã sẵn sàng để học offline.');
-      })
-      .catch(async (error) => {
-        await refreshAIStatus();
-        const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-        showToast(message || 'Không thể tải AI cục bộ.', '!', true);
-      });
-  });
-  $('#local-ai-test').addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    button.textContent = 'Đang nạp model…';
-    try {
-      const result = await api.testLocalAI();
-      showToast(`AI cục bộ phản hồi sau ${(result.elapsedMs / 1000).toFixed(1)} giây.`);
-      await refreshAIStatus();
-    } catch (error) {
-      const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-      showToast(message || 'AI cục bộ chưa thể phản hồi.', '!', true);
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Kiểm tra thử';
-    }
-  });
-  $('#local-ai-stop').addEventListener('click', async () => {
-    await api.stopLocalAI();
-    await refreshAIStatus();
-    showToast('Đã giải phóng model khỏi RAM và VRAM.');
-  });
-  $('#local-ai-delete').addEventListener('click', () => askConfirm(
-    'Xóa AI cục bộ?',
-    'Model khoảng 2.33 GB và runtime sẽ bị xóa. Dữ liệu học, lịch FSRS và API key không bị ảnh hưởng.',
-    async () => {
-      closeConfirm();
-      try {
-        await api.deleteLocalAI();
-        await refreshAIStatus();
-        showToast('Đã xóa AI cục bộ khỏi máy.');
-      } catch {
-        showToast('Không thể xóa model lúc này.', '!', true);
-      }
-    },
-    'Xóa model'
-  ));
-  $('#save-gemini-key').addEventListener('click', async () => {
-    const input = $('#gemini-key-input');
-    const button = $('#save-gemini-key');
-    const key = input.value.trim();
-    if (!key) { showToast('Hãy nhập Gemini API key.', '!', true); input.focus(); return; }
-    button.disabled = true;
-    button.textContent = 'Đang kiểm tra...';
-    try {
-      const result = await api.saveGeminiKey(key);
-      input.value = '';
-      state.geminiConfigured = true;
-      state.geminiModel = result.model;
-      await refreshAIStatus();
-      showToast('Đã kết nối Gemini an toàn.');
-    } catch (error) {
-      const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': Error: /, '');
-      showToast(message || 'Không thể kết nối Gemini.', '!', true);
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Lưu & kiểm tra';
-    }
   });
   $('#check-update-btn').addEventListener('click', async () => {
     const status = state.updateStatus;
@@ -2575,9 +2156,7 @@ function bindEvents() {
     if (state.view === 'review' && state.review && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const activeTag = document.activeElement?.tagName;
       if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) {
-        const word = state.data.words.find((item) => item.id === state.review.queue[0]);
-        const fastMode = word && state.review.mode !== 'deep' && !state.review.deepWords.has(word.id);
-        if (fastMode && state.review.revealed && ['1', '2', '3', '4'].includes(event.key)) {
+        if (state.review.revealed && ['1', '2', '3', '4'].includes(event.key)) {
           event.preventDefault();
           gradeCurrent({ 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' }[event.key]);
         }
@@ -2597,14 +2176,6 @@ async function init() {
   await persist();
   bindEvents();
   api.onUpdateStatus?.(renderUpdateStatus);
-  api.onAIStatus?.((local) => {
-    state.aiStatus = { ...(state.aiStatus || {}), local };
-    const preference = state.data?.settings?.aiProvider || 'auto';
-    if (['ready', 'loading', 'running', 'generating'].includes(local.state) && preference !== 'gemini') {
-      state.aiStatus.activeProvider = 'local';
-    }
-    renderLocalAIStatus(local);
-  });
   renderPosOptions();
   renderDefinitionFields();
   renderReviewWelcome();

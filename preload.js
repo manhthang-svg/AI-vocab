@@ -16,23 +16,6 @@ contextBridge.exposeInMainWorld('milim', {
   testEmailReminder: () => ipcRenderer.invoke('reminder:test'),
   copyEmailReminderScript: () => ipcRenderer.invoke('reminder:copy-script'),
   openEmailReminderScript: () => ipcRenderer.invoke('reminder:open-script'),
-  geminiStatus: () => ipcRenderer.invoke('gemini:status'),
-  saveGeminiKey: (key) => ipcRenderer.invoke('gemini:save-key', key),
-  checkGeminiAnswer: (payload) => ipcRenderer.invoke('gemini:check-answer', payload),
-  generateRecallChallenge: (payload) => ipcRenderer.invoke('gemini:generate-challenge', payload),
-  aiStatus: () => ipcRenderer.invoke('ai:status'),
-  downloadLocalAI: () => ipcRenderer.invoke('ai:download-local'),
-  pauseLocalAIDownload: () => ipcRenderer.invoke('ai:pause-download'),
-  deleteLocalAI: () => ipcRenderer.invoke('ai:delete-local'),
-  stopLocalAI: () => ipcRenderer.invoke('ai:stop-local'),
-  testLocalAI: () => ipcRenderer.invoke('ai:test-local'),
-  checkAIAnswer: (payload) => ipcRenderer.invoke('ai:check-answer', payload),
-  generateAIChallenge: (payload) => ipcRenderer.invoke('ai:generate-challenge', payload),
-  onAIStatus: (callback) => {
-    const listener = (_event, status) => callback(status);
-    ipcRenderer.on('ai:status-changed', listener);
-    return () => ipcRenderer.removeListener('ai:status-changed', listener);
-  },
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),

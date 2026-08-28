@@ -9,3 +9,6 @@ dist/
 release/
 out/
 tmp/
+.agents/
+smoke.png
+
