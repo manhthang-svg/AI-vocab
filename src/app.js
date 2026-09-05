@@ -748,22 +748,41 @@ async function submitWord(event) {
   const note = $('#note-input').value.trim();
   const definitions = $$('.definition-input').map((input) => ({ partOfSpeech: input.dataset.definitionPos || '', definition: input.value.trim() }));
   const emptyDefinition = definitions.findIndex((item) => !item.definition);
-  if (!term || emptyDefinition >= 0) {
-    showToast(state.selectedPos.length > 1 ? 'Hãy nhập định nghĩa riêng cho từng từ loại nhé.' : 'Hãy nhập cả thuật ngữ và định nghĩa nhé.', '!', true);
-    (!term ? $('#term-input') : $$('.definition-input')[emptyDefinition]).focus();
+  if (!term) {
+    showToast('Hãy nhập thuật ngữ trước nhé.', '!', true);
+    $('#term-input').focus();
     return;
   }
-  const definition = definitions.map((item) => item.definition).join('\n');
-  const partsOfSpeech = [...state.selectedPos];
 
   const duplicate = state.data.words.find((word) => normalizedTerm(word.term) === normalizedTerm(term) && word.id !== state.editingId);
   if (duplicate) {
     state.selectedDate = wordDate(duplicate);
     $('#duplicate-hint').textContent = `Từ này đã có trong bộ ${dateLabel(wordDate(duplicate))}.`;
+
+    if (!state.editingId) {
+      applySrs(duplicate, 'again', { reviewMode: 'duplicate-entry' });
+      await persist(false);
+      syncEmailStudySignal(false);
+      showToast(`“${duplicate.term}” đã tồn tại và được đánh dấu là Quên.`, '!', true);
+      resetForm();
+      renderRecentAdded();
+      renderHome();
+      $('#term-input').focus();
+      return;
+    }
+
     showToast(`“${term}” đã có trong thư viện.`, '!', true);
     $('#term-input').focus();
     return;
   }
+
+  if (emptyDefinition >= 0) {
+    showToast(state.selectedPos.length > 1 ? 'Hãy nhập định nghĩa riêng cho từng từ loại nhé.' : 'Hãy nhập cả thuật ngữ và định nghĩa nhé.', '!', true);
+    $$('.definition-input')[emptyDefinition].focus();
+    return;
+  }
+  const definition = definitions.map((item) => item.definition).join('\n');
+  const partsOfSpeech = [...state.selectedPos];
 
   if (state.editingId) {
     const word = state.data.words.find((item) => item.id === state.editingId);
@@ -2029,7 +2048,7 @@ function bindEvents() {
   $('#term-input').addEventListener('input', () => {
     const value = normalizedTerm($('#term-input').value);
     const duplicate = value && state.data.words.find((word) => normalizedTerm(word.term) === value && word.id !== state.editingId);
-    $('#duplicate-hint').textContent = duplicate ? `Đã có trong bộ ${dateLabel(wordDate(duplicate))} — milim sẽ không thêm trùng.` : '';
+    $('#duplicate-hint').textContent = duplicate ? `Đã có trong bộ ${dateLabel(wordDate(duplicate))} — khi lưu, milim sẽ đánh dấu từ này là Quên.` : '';
   });
   $('#definition-fields').addEventListener('keydown', (event) => {
     if (event.target.matches('.definition-input') && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('#word-form').requestSubmit(); }
